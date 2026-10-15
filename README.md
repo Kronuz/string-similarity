@@ -1,5 +1,7 @@
 # string-similarity
 
+[![CI](https://github.com/Kronuz/string-similarity/actions/workflows/ci.yml/badge.svg)](https://github.com/Kronuz/string-similarity/actions/workflows/ci.yml)
+
 A small, header-only C++20 suite of string-similarity metrics: edit distance,
 Jaro and Jaro-Winkler, longest common substring and subsequence, Jaccard,
 Sørensen-Dice, and a Soundex-backed wrapper. Extracted from
