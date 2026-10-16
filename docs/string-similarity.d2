@@ -1,0 +1,19 @@
+# string-similarity: one interface, many metrics, scores in [0, 1].
+# Render: d2 --layout elk --sketch --theme 302 docs/string-similarity.d2 docs/string-similarity.svg
+direction: right
+
+pair: '"kitten" vs "sitting"' {
+  label: "\"kitten\" · \"sitting\""
+}
+metrics: StringMetric<Impl> {
+  lev: "Levenshtein"
+  jw: "Jaro · Jaro-Winkler"
+  lcs: "LCSubstr · LCSubsequence"
+  set: "Jaccard · Sørensen-Dice"
+  ph: "PhoneticMetric<Soundex, …>"
+}
+score: score {
+  label: "similarity() in [0, 1]\ndistance() = 1 − similarity"
+}
+pair -> metrics
+metrics -> score

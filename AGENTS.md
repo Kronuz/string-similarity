@@ -19,9 +19,11 @@ sorensen_dice.h              Sørensen-Dice over character bigrams.
 phonetic_metric.h             PhoneticMetric<Encoder, Metric>: encode phonetically, score the codes.
 test/test.cc                 Runnable smoke test: asserts known values for every metric.
 examples/demo.cc             A runnable tour (not a test).
-CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + phonetic; CTest test `string_similarity`.
+CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex; CTest test `string_similarity`.
 LICENSE                      MIT, Copyright (c) 2015-2019 Dubalu LLC.
-README.md                    What it is, install, usage.
+README.md                    What it is, install, quick start.
+docs/API.md                  The metrics and their usage.
+docs/string-similarity.d2    The README diagram's source (docs/string-similarity.svg is rendered from it).
 ARCHITECTURE.md              The CRTP base, what each metric computes, the dispatch subtlety.
 ```
 
@@ -35,7 +37,7 @@ consumer's include path and links the two dependencies.
 cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
-The first configure fetches `strings` and `phonetic` over the network
+The first configure fetches `strings` and `soundex` over the network
 (FetchContent, `GIT_TAG main`). Expected output ends with
 `all string-similarity tests passed`, exit 0. The test target is
 `string_similarity_test`; the registered CTest name is `string_similarity`. The test and
@@ -52,10 +54,10 @@ Two siblings in the same family, both linked `INTERFACE`:
 - **[soundex](https://github.com/Kronuz/soundex)** — `phonetic_metric.h` is a
   template over a phonetic encoder; the concrete encoders (`SoundexEnglish` in
   `english_soundex.h`, etc.) live there. Consumers of the soundex wrapper include
-  one of those headers, so phonetic is linked `INTERFACE` too.
+  one of those headers, so soundex is linked `INTERFACE` too.
 
-`phonetic` itself depends on `strings`. We `FetchContent_Declare(strings ...)`
-before `phonetic` so that declaration wins (FetchContent dedups by the declared
+`soundex` itself depends on `strings`. We `FetchContent_Declare(strings ...)`
+before `soundex` so that declaration wins (FetchContent dedups by the declared
 name and keeps the first), and both resolve to a single copy of `strings`. We
 track both at `GIT_TAG main`, like the rest of the family.
 
@@ -77,7 +79,7 @@ track both at `GIT_TAG main`, like the rest of the family.
   and their includes (`length.h`, the GPL `xapian/common/serialise-double.h`) were
   removed; the metrics are pure algorithms now. Don't reintroduce them here — if
   Xapiand ever de-vendors this, it keeps its own serialise adapter on top. Do not
-  call `_soundex.serialise()` either; the phonetic library has no serialise.
+  call `_soundex.serialise()` either; the soundex library has no serialise.
 - **The CRTP base owns the base cases and case folding.** Identical strings
   short-circuit to `0` / `1`, an empty operand to `1` / `0`, and `_icase` folds
   both operands with `strings::upper` before any subclass `_distance` /
@@ -125,5 +127,5 @@ This is a standalone extraction from
 verbatim; the decoupling change was removing the persistence layer
 (`serialise()` / `unserialise()` and the `length.h` / GPL `serialise-double.h`
 includes) and resolving the remaining local includes (`strings.hh` and the
-soundex encoder headers) against the standalone `strings` and `phonetic`
+soundex encoder headers) against the standalone `strings` and `soundex`
 libraries through CMake. Keep it reconcilable with upstream as a plain edit.
