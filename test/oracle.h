@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -30,6 +31,7 @@ inline size_t lev_raw(std::string_view a, std::string_view b, size_t sub, size_t
 inline double lev_distance(std::string_view a, std::string_view b, size_t sub, size_t indel) {
 	if (a.empty() || b.empty()) return 1.0;
 	if (a == b) return 0.0;
+	if (sub == 0 && indel == 0) return 0.0;  // everything is free
 	return (double)lev_raw(a, b, sub, indel) / (std::max(sub, indel) * std::max(a.size(), b.size()));
 }
 
@@ -105,15 +107,15 @@ inline double jaccard(std::string_view a, std::string_view b) {
 	return (double)inter / u.size();
 }
 
-// Dice over the sets of distinct bigrams (the library's documented variant).
-inline double dice_set(std::string_view a, std::string_view b) {
+// Sorensen-Dice over bigram multisets: 2 * sum_g min(count_a(g), count_b(g)) / (|a|-1 + |b|-1).
+inline double dice_multiset(std::string_view a, std::string_view b) {
 	if (a.size() < 2 || b.size() < 2) return 0.0;
-	std::set<std::string> sa, sb;
-	for (size_t i = 0; i + 1 < a.size(); ++i) sa.insert(std::string(a.substr(i, 2)));
-	for (size_t i = 0; i + 1 < b.size(); ++i) sb.insert(std::string(b.substr(i, 2)));
+	std::map<std::string, int> ca, cb;
+	for (size_t i = 0; i + 1 < a.size(); ++i) ++ca[std::string(a.substr(i, 2))];
+	for (size_t i = 0; i + 1 < b.size(); ++i) ++cb[std::string(b.substr(i, 2))];
 	size_t inter = 0;
-	for (const auto& x : sa) inter += sb.count(x);
-	return 2.0 * inter / (sa.size() + sb.size());
+	for (const auto& [g, n] : ca) { auto it = cb.find(g); if (it != cb.end()) inter += std::min(n, it->second); }
+	return 2.0 * inter / ((a.size() - 1) + (b.size() - 1));
 }
 
 }  // namespace oracle

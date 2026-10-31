@@ -25,7 +25,7 @@
 // (test/oracle.h: textbook definitions). Exhaustive over small alphabets and
 // lengths, plus random long strings that cross the 64-bit word boundaries.
 // Named checks (so a reverted fix fails a named test):
-//   levenshtein_weighted, jaro, jaro_winkler, lcs, jaccard, dice, icase_len1.
+//   levenshtein_weighted, jaro, jaro_winkler, lcs, jaccard, dice, icase_len1, levenshtein_zero, phonetic.
 
 #include <cmath>
 #include <cstdio>
@@ -41,6 +41,8 @@
 #include "levenshtein.h"
 #include "oracle.h"
 #include "sorensen_dice.h"
+#include "phonetic_metric.h"
+#include "english_soundex.h"
 
 static size_t checks = 0;
 static std::string failed;
@@ -83,7 +85,7 @@ int main() {
 	// Levenshtein, all cost pairs (including the unit-cost bit-parallel path),
 	// exhaustive over {a,b,c} up to length 6.
 	{
-		const size_t costs[][2] = {{1, 1}, {2, 2}, {1, 2}, {2, 1}, {3, 1}, {1, 3}, {5, 2}, {2, 5}, {1, 5}};
+		const size_t costs[][2] = {{0, 0}, {1, 1}, {2, 2}, {1, 2}, {2, 1}, {3, 1}, {1, 3}, {5, 2}, {2, 5}, {1, 5}};
 		const auto strs = all_strings("abc", 6);
 		for (const auto& c : costs) {
 			Levenshtein l(false, c[0], c[1]);
@@ -153,6 +155,35 @@ int main() {
 	expect(Jaro_Winkler(true).similarity(std::string("a"), std::string("A")), 1.0, "icase_len1", "a", "A");
 	expect(Jaro(true).distance(std::string("a"), std::string("A")), 0.0, "icase_len1", "a", "A");
 
+	// Sorensen-Dice counts repeated bigrams: "aaaa" has 3 "aa" bigrams.
+	expect(Sorensen_Dice(false).similarity(std::string("aaaa"), std::string("aaab")), 2.0 * 2 / 6, "dice", "aaaa", "aaab");
+	// Both costs 0: every edit is free, distance 0 (similarity 1), never NaN.
+	{
+		Levenshtein z(false, 0, 0);
+		expect(z.distance(std::string("abc"), std::string("xy")), 0.0, "levenshtein_zero", "abc", "xy");
+		expect(z.similarity(std::string("abc"), std::string("xy")), 1.0, "levenshtein_zero", "abc", "xy");
+		Levenshtein zb(std::string("abc"), false, 0, 0);
+		expect(zb.distance(std::string("xy")), 0.0, "levenshtein_zero", "abc", "xy");
+	}
+	// PhoneticMetric: encode both operands, then compare the codes.
+	{
+		SoundexEnglish enc;
+		PhoneticMetric<SoundexEnglish, Levenshtein> pm;
+		const char* words[] = {"Robert", "Rupert", "Rubin", "Ashcraft", "Tymczak", "Pfister", "Honeyman", "Lee", "x", "Washington", "Wasington"};
+		for (const char* x : words) {
+			for (const char* y : words) {
+				const std::string a(x), b(y), ea = enc.encode(a), eb = enc.encode(b);
+				const double want = ea == eb ? 0.0 : oracle::lev_distance(ea, eb, 1, 1);
+				expect(pm.distance(a, b), want, "phonetic", a, b);
+				expect(pm.similarity(a, b), 1.0 - want, "phonetic", a, b);
+				PhoneticMetric<SoundexEnglish, Levenshtein> bound(a);
+				expect(bound.distance(b), want, "phonetic", a, b);
+				expect(bound.similarity(b), 1.0 - want, "phonetic", a, b);
+			}
+		}
+		expect(pm.similarity(std::string("Robert"), std::string("Rupert")), 1.0, "phonetic", "Robert", "Rupert");
+	}
+
 	// Other algorithms against their oracles (exhaustive {a,b,c} to length 5).
 	{
 		LCSubsequence ls(false);
@@ -167,7 +198,7 @@ int main() {
 				expect(ls.similarity(a, b), oracle::lcs_subsequence(a, b) / mx, "lcs", a, b);
 				expect(lt.similarity(a, b), oracle::lcs_substring(a, b) / mx, "lcs", a, b);
 				expect(jc.similarity(a, b), oracle::jaccard(a, b), "jaccard", a, b);
-				expect(dc.similarity(a, b), oracle::dice_set(a, b), "dice", a, b);
+				expect(dc.similarity(a, b), oracle::dice_multiset(a, b), "dice", a, b);
 			}
 		}
 	}

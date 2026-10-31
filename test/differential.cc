@@ -30,6 +30,7 @@
 // really differ somewhere (so the class list cannot silently go stale):
 //   Levenshtein, insert/delete cost != 1: the left column was seeded with i + 1
 //     instead of (i + 1) * cost.
+//   Levenshtein, both costs 0: 0 / 0 (NaN) before, distance 0 now.
 //   Jaro: repeated characters (the legacy two-pass matching is not the standard
 //     one-pass), an odd number of out-of-order matches (legacy transpositions
 //     were t / 2.0, the standard is integer t / 2), and two one-character strings
@@ -182,6 +183,7 @@ static double want_lev(const std::string& a, const std::string& b, bool dist, bo
 	if (a.empty() || b.empty()) return dist ? 1.0 : 0.0;
 	if (a == b) return dist ? 0.0 : 1.0;
 	// Not equal before folding: the textbook formula (0 / 0 for zero costs).
+	if (g_c0 == 0 && g_c1 == 0) return dist ? 0.0 : 1.0;  // everything is free
 	const auto fa = fold(a, icase), fb = fold(b, icase);
 	const double d = (double)oracle::lev_raw(fa, fb, g_c0, g_c1) / (std::max(g_c0, g_c1) * std::max(fa.size(), fb.size()));
 	return dist ? d : 1.0 - d;

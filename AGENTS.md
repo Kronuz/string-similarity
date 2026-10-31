@@ -93,12 +93,10 @@ track both at `GIT_TAG main`, like the rest of the family.
   base can call its private kernels. Keep the friend declaration when adding a
   metric.
 - **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h` except for the corrected classes listed at the top of `test/differential.cc` (Levenshtein insert/delete cost != 1, Jaro matching, Jaro_Winkler); everywhere else old == new is enforced. `test/correctness.cc` checks every metric against the textbook oracles in `test/oracle.h`; `test/rapidfuzz_check.cc` (bench option) checks Jaro/Jaro_Winkler against rapidfuzz.
-- **The dispatch is fixed at the StringMetric<...> layer.** For `PhoneticMetric`,
-  the base's CRTP `Impl` is the inner `Metric`, so the public two-argument call
-  reaches the inner kernel on the raw strings, not `PhoneticMetric`'s. This is
-  preserved-from-upstream behavior, reported as an open owner decision. A metric
-  that must run its own kernel names itself in `StringMetric<...>` (as
-  `Jaro_Winkler` does).
+- **The dispatch is fixed at the StringMetric<...> layer.** A derived
+  metric must not rely on the base's CRTP dispatch reaching its code: `Jaro_Winkler`
+  names itself in `StringMetric<...>`, and `PhoneticMetric` (derived from its inner
+  `Metric`) declares its own `distance` / `similarity` that encode, then call the inner metric.
 
 ## How to extend
 

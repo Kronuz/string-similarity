@@ -82,6 +82,9 @@ private:
 	// Both operands are already case-folded (if folding applies).
 	double _distance(std::string_view str1, std::string_view str2) const {
 		const auto len1 = str1.size(), len2 = str2.size();
+		if (_maxCost == 0) {
+			return 0.0;  // every edit is free: any two strings are at distance 0
+		}
 		size_t raw;
 		if (_subst_cost == 1 && _ins_del_cost == 1) {
 			// Plain unit costs (the default): bit-parallel edit distance. Other costs

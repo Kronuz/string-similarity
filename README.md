@@ -143,10 +143,18 @@ Three bugs were corrected; results change for these inputs and only these.
   with `i + 1` instead of `(i + 1) * cost`, giving wrong distances. Unit costs were
   unaffected. Oracle: the textbook full-matrix DP.
 
-Other metrics were checked against brute-force oracles and match them. Known and
-unchanged: `Sorensen_Dice` uses the sets of distinct bigrams (not multisets);
-`PhoneticMetric`'s two-argument calls run the inner metric on the raw strings;
-`Levenshtein` with both costs 0 divides 0 by 0.
+Three more followed:
+
+- **`PhoneticMetric`** encodes both operands (and the comparand of the bound-string
+  form) before the inner metric runs. Its two-argument and one-argument calls used
+  to compare the raw strings. Oracle: encode with the encoder, then compare the codes.
+- **`Levenshtein` with both costs 0** returns distance 0 (similarity 1) instead of
+  0 / 0 = NaN: every edit is free.
+- **`Sorensen_Dice`** counts bigrams as a multiset, the standard definition
+  `2 * |shared| / (|b1| + |b2|)`; it used distinct bigrams, so repeated bigrams
+  ("aaaa") were undercounted.
+
+Other metrics were checked against brute-force oracles and match them.
 
 ## 🤝 Contributing
 

@@ -46,22 +46,6 @@ protected:
 	Encoder _soundex;
 
 private:
-	double _distance(std::string_view str1, std::string_view str2) const {
-		return Metric::distance(_soundex.encode(str1), _soundex.encode(str2));
-	}
-
-	double _distance(std::string_view str2) const {
-		return Metric::distance(_soundex.encode(str2));
-	}
-
-	double _similarity(std::string_view str1, std::string_view str2) const {
-		return Metric::similarity(_soundex.encode(str1), _soundex.encode(str2));
-	}
-
-	double _similarity(std::string_view str2) const {
-		return Metric::similarity(_soundex.encode(str2));
-	}
-
 	std::string _description() const {
 		std::string desc("PhoneticMetric<");
 		desc.append(_soundex.description()).append(", ").append(Metric::description());
@@ -70,6 +54,27 @@ private:
 	}
 
 public:
+	// Both operands are encoded, then compared by the inner metric over the codes.
+	template <typename T>
+	double distance(const T& str1, const T& str2) const {
+		return Metric::distance(_soundex.encode(str1), _soundex.encode(str2));
+	}
+
+	// The bound string is already encoded; encode the comparand.
+	template <typename T>
+	double distance(const T& str2) const {
+		return Metric::distance(_soundex.encode(str2));
+	}
+
+	template <typename T>
+	double similarity(const T& str1, const T& str2) const {
+		return Metric::similarity(_soundex.encode(str1), _soundex.encode(str2));
+	}
+
+	template <typename T>
+	double similarity(const T& str2) const {
+		return Metric::similarity(_soundex.encode(str2));
+	}
 
 	/*
 	 * Soundex is icase, therefore the parameter is not necessary.

@@ -53,8 +53,8 @@ plus their one-argument forms, and `_name` / `_description`.
   for the former, classic LCS for the latter — and divide by `max(len1, len2)` to
   get a similarity in `[0, 1]`.
 - **Jaccard** builds a `std::set<char>` of each string and returns
-  `|intersection| / |union|`. **Sorensen_Dice** does the same over the strings'
-  2-character substrings (bigrams): `2 * |shared| / (|b1| + |b2|)`. Both count the
+  `|intersection| / |union|`. **Sorensen_Dice** works over the strings'
+  2-character substrings (bigrams) as multisets: `2 * |shared| / (|b1| + |b2|)`. Both count the
   intersection with the `Counter` helper, a minimal output-iterator sink for
   `std::set_intersection` that just tallies `push_back` calls instead of
   materializing the intersection.
@@ -69,10 +69,8 @@ The CRTP `Impl` is fixed at the layer that names `StringMetric<...>`, and the ba
 calls that class's kernel. A metric that derives from another metric therefore
 runs the parent's kernel unless it names itself: `Jaro_Winkler` is its own
 `StringMetric<Jaro_Winkler>` for this reason. `PhoneticMetric` derives from its
-inner `Metric`, so the public two-argument call runs the inner metric on the raw
-strings, and the phonetic encoding is exercised through the bound-string
-constructor path. This is upstream Xapiand behavior, preserved; the test verifies
-the phonetic collapse through the encoder directly.
+inner `Metric`, so it declares its own public `distance` / `similarity`, which hide
+the base ones and encode the operands before calling the inner metric.
 
 ## Why this shape
 

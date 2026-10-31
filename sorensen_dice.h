@@ -26,7 +26,8 @@
 #include <algorithm>                              // for std::set_intersection
 #include <cstddef>                                // for std::size_t
 #include <iterator>                               // for std::back_inserter
-#include <set>                                    // for std::set
+#include <vector>                                 // for std::vector
+#include <string>
 #include <string_view>                            // for std::string_view
 #include <utility>                                // for std::forward
 
@@ -34,62 +35,41 @@
 
 
 /*
- * Metric based in Sørensen–Dice index.
+ * Metric based in Sørensen–Dice index over the multiset of character bigrams.
  *
  * Token-based metric.
  */
 class Sorensen_Dice : public StringMetric<Sorensen_Dice> {
-	std::set<std::string_view> _str_bigrams;
+	std::vector<std::string_view> _str_bigrams;
 
 	friend class StringMetric<Sorensen_Dice>;
 
-	std::set<std::string_view> get_bigrams(std::string_view str) const {
-		// Extract bigrams from str
-		const size_t num_pairs = str.size() - 1;
-		std::set<std::string_view> str_bigrams;
-		for (size_t i = 0; i < num_pairs; ++i) {
-			str_bigrams.insert(str.substr(i, 2));
+	// The bigrams of str as a sorted multiset (a repeated bigram counts each time).
+	static std::vector<std::string_view> get_bigrams(std::string_view str) {
+		std::vector<std::string_view> bigrams;
+		for (size_t i = 0; i + 1 < str.size(); ++i) {
+			bigrams.push_back(str.substr(i, 2));
 		}
-		return str_bigrams;
+		std::sort(bigrams.begin(), bigrams.end());
+		return bigrams;
+	}
+
+	// 2 * |multiset intersection| / (|b1| + |b2|)
+	static double dice(const std::vector<std::string_view>& b1, const std::vector<std::string_view>& b2) {
+		if (b1.empty() || b2.empty()) {
+			return 0.0;
+		}
+		Counter c;
+		std::set_intersection(b1.begin(), b1.end(), b2.begin(), b2.end(), std::back_inserter(c));
+		return (2.0 * c.count) / (b1.size() + b2.size());
 	}
 
 	double _similarity(std::string_view str1, std::string_view str2) const {
-		// Base case: if some string does not have bigrams.
-		if (str1.size() < 2 || str2.size() < 2) {
-			return 0;
-		}
-
-		// Extract bigrams from str1
-		const auto str1_bigrams = get_bigrams(str1);
-
-		// Extract bigrams from str2
-		const auto str2_bigrams = get_bigrams(str2);
-
-		// Find the intersection between the two sets.
-		Counter c;
-		std::set_intersection(str1_bigrams.begin(), str1_bigrams.end(), str2_bigrams.begin(),
-			str2_bigrams.end(), std::back_inserter(c));
-
-		// Returns similarity.
-		return (2.0 * c.count) / (str1_bigrams.size() + str2_bigrams.size());
+		return dice(get_bigrams(str1), get_bigrams(str2));
 	}
 
 	double _similarity(std::string_view str2) const {
-		// Base case: if _str_bigrams or str2 does not have bigrams.
-		if (_str_bigrams.empty() || str2.size() < 2) {
-			return 0.0;
-		}
-
-		// Extract bigrams from str2
-		const auto str2_bigrams = get_bigrams(str2);
-
-		// Find the intersection between the two sets.
-		Counter c;
-		std::set_intersection(_str_bigrams.begin(), _str_bigrams.end(), str2_bigrams.begin(),
-			str2_bigrams.end(), std::back_inserter(c));
-
-		// Returns similarity.
-		return (2.0 * c.count) / (_str_bigrams.size() + str2_bigrams.size());
+		return dice(_str_bigrams, get_bigrams(str2));
 	}
 
 	/*
