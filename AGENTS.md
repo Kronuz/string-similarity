@@ -19,11 +19,14 @@ jaccard.h                    Jaccard index over character sets.
 sorensen_dice.h              Sørensen-Dice over character bigrams.
 phonetic_metric.h             PhoneticMetric<Encoder, Metric>: encode phonetically, score the codes.
 test/test.cc                 Runnable smoke test: asserts known values for every metric.
-test/differential.cc         Bit-for-bit comparison of Levenshtein/Jaro/Jaro_Winkler against test/legacy_metrics.h (frozen old code; never edit it).
+test/correctness.cc          Every metric against the textbook oracles in test/oracle.h.
+test/differential.cc         Bit-for-bit comparison of Levenshtein/Jaro/Jaro_Winkler against test/legacy_metrics.h (frozen pre-bit-parallel code; never edit it).
+test/rapidfuzz_check.cc      Jaro/Jaro_Winkler against rapidfuzz-cpp (bench option only).
 bench/bench.cc               Benchmark vs legacy and rapidfuzz-cpp (optional CMake target; comparator fetched only there).
 examples/demo.cc             A runnable tour (not a test).
-CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex; CTest test `string_similarity`.
-LICENSE                      MIT, Copyright (c) 2015-2019 Dubalu LLC.
+CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex; CTest tests `string_similarity`, `_differential`, `_correctness`.
+LICENSE                      MIT, Copyright (c) 2026 Germán Méndez Bravo and (c) 2015-2020 Dubalu LLC.
+CHANGELOG.md                 Behavior and performance changes, dated.
 README.md                    What it is, install, quick start.
 docs/API.md                  The metrics and their usage.
 docs/string-similarity.d2    The README diagram's source (docs/string-similarity.svg is rendered from it).
@@ -41,9 +44,10 @@ cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
 The first configure fetches `strings` and `soundex` over the network
-(FetchContent, `GIT_TAG main`). Expected output ends with
-`all string-similarity tests passed`, exit 0. The test target is
-`string_similarity_test`; the registered CTest name is `string_similarity`. The test and
+(FetchContent, `GIT_TAG main`). The smoke test prints
+`all string-metrics tests passed (N checks)` and exits 0. CTest runs three
+targets: `string_similarity` (`test/test.cc`), `string_similarity_differential`
+and `string_similarity_correctness`. The tests and
 demo are only added when this repo is the top-level project (CMakeLists.txt), so
 consumers vendoring it via `FetchContent` won't build them.
 
@@ -51,10 +55,10 @@ consumers vendoring it via `FetchContent` won't build them.
 
 Two siblings in the same family, both linked `INTERFACE`:
 
-- **[strings](https://github.com/Kronuz/strings)** — `basic_string_metric.h`
+- **[strings](https://github.com/Kronuz/strings)**: `basic_string_metric.h`
   includes `"strings.hh"` for `strings::upper` (the case-folding step). Part of
   the public surface, so it must ride onto the consumer's include path.
-- **[soundex](https://github.com/Kronuz/soundex)** — `phonetic_metric.h` is a
+- **[soundex](https://github.com/Kronuz/soundex)**: `phonetic_metric.h` is a
   template over a phonetic encoder; the concrete encoders (`SoundexEnglish` in
   `english_soundex.h`, etc.) live there. Consumers of the soundex wrapper include
   one of those headers, so soundex is linked `INTERFACE` too.
@@ -78,10 +82,11 @@ track both at `GIT_TAG main`, like the rest of the family.
 
 ## Load-bearing invariants
 
-- **No persistence.** On extraction the `serialise()` / `unserialise()` methods
-  and their includes (`length.h`, the GPL `xapian/common/serialise-double.h`) were
-  removed; the metrics are pure algorithms now. Don't reintroduce them here — if
-  Xapiand ever de-vendors this, it keeps its own serialise adapter on top. Do not
+- **No persistence.** The library omits Xapiand's `serialise()` / `unserialise()`
+  methods and their includes (`length.h`, the GPL
+  `xapian/common/serialise-double.h`); the metrics are pure algorithms. Don't
+  reintroduce them here. A Xapiand that uses this library keeps its own serialise
+  adapter on top. Do not
   call `_soundex.serialise()` either; the soundex library has no serialise.
 - **The CRTP base owns the base cases and case folding.** Identical strings
   short-circuit to `0` / `1`, an empty operand to `1` / `0`, and `_icase` folds
@@ -92,7 +97,7 @@ track both at `GIT_TAG main`, like the rest of the family.
   `friend class StringMetric<Impl>;` (Jaro_Winkler is its own `StringMetric<Jaro_Winkler>` and calls the static `Jaro::jaro`) so the
   base can call its private kernels. Keep the friend declaration when adding a
   metric.
-- **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h` except for the corrected classes listed at the top of `test/differential.cc` (Levenshtein insert/delete cost != 1, Jaro matching, Jaro_Winkler); everywhere else old == new is enforced. `test/correctness.cc` checks every metric against the textbook oracles in `test/oracle.h`; `test/rapidfuzz_check.cc` (bench option) checks Jaro/Jaro_Winkler against rapidfuzz.
+- **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h` except for the input classes listed at the top of `test/differential.cc` (Levenshtein insert/delete cost != 1 or both costs 0, Jaro matching, Jaro_Winkler), where the legacy result is a known bug (see `CHANGELOG.md`); everywhere else the test enforces equality. `test/correctness.cc` checks every metric against the textbook oracles in `test/oracle.h`; `test/rapidfuzz_check.cc` (bench option) checks Jaro/Jaro_Winkler against rapidfuzz.
 - **The dispatch is fixed at the StringMetric<...> layer.** A derived
   metric must not rely on the base's CRTP dispatch reaching its code: `Jaro_Winkler`
   names itself in `StringMetric<...>`, and `PhoneticMetric` (derived from its inner
@@ -104,9 +109,9 @@ track both at `GIT_TAG main`, like the rest of the family.
   base, implement the two-argument and one-argument `_distance` / `_similarity` and
   `_name` / `_description`. Add the standard headers it needs at the top (the
   family lists each include with a `// for ...` note). No serialise.
-- **Always extend the smoke test.** `test/test.cc` is the only executable check.
-  Add a case asserting a hand-computed value for any new metric, with a tolerance
-  for the floating-point ones.
+- **Always extend the tests.** Add a case to `test/test.cc` asserting a
+  hand-computed value for any new metric, with a tolerance for the floating-point
+  ones, and an oracle comparison to `test/correctness.cc`.
 
 ## Traps
 
@@ -118,17 +123,17 @@ track both at `GIT_TAG main`, like the rest of the family.
   It needs `<algorithm>` (for `std::set_intersection`) and `<iterator>` (for
   `std::back_inserter`); both are listed explicitly rather than leaned on
   transitively.
-- **The phonetic encoding is reached through the bound-string constructor**, not
-  the two-argument `similarity()` (see the dispatch note above). The test verifies
-  the homophone collapse through the encoder directly so it actually exercises the
-  phonetic path.
+- **`PhoneticMetric` hides the base `distance` / `similarity`.** Its own
+  overloads encode the operands; the bound-string constructor stores the encoded
+  form. A call that reaches `StringMetric<Metric>` directly compares raw strings.
+  `test/correctness.cc` checks both forms against encode-then-compare.
 
 ## Standalone vs. Xapiand
 
 This is a standalone extraction from
-[Xapiand](https://github.com/Kronuz/Xapiand). The metric algorithms were copied
-verbatim; the decoupling change was removing the persistence layer
-(`serialise()` / `unserialise()` and the `length.h` / GPL `serialise-double.h`
-includes) and resolving the remaining local includes (`strings.hh` and the
-soundex encoder headers) against the standalone `strings` and `soundex`
-libraries through CMake. Keep it reconcilable with upstream as a plain edit.
+[Xapiand](https://github.com/Kronuz/Xapiand). It differs from upstream in three
+ways: it has no persistence layer (`serialise()` / `unserialise()` and the
+`length.h` / GPL `serialise-double.h` includes), it resolves its local includes
+(`strings.hh` and the soundex encoder headers) against the standalone `strings`
+and `soundex` libraries through CMake, and it carries the kernels and fixes in
+`CHANGELOG.md`. Keep it reconcilable with upstream as a plain edit.

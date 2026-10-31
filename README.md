@@ -79,6 +79,7 @@ int main() {
 - [ARCHITECTURE.md](ARCHITECTURE.md): the CRTP base and how each metric
   normalizes.
 - [AGENTS.md](AGENTS.md): repository map, invariants, and traps.
+- [CHANGELOG.md](CHANGELOG.md): what changed, and when.
 
 ## 🛠️ Building and testing
 
@@ -87,74 +88,39 @@ cmake -B build && cmake --build build && ctest --test-dir build
 ./build/string_similarity_demo
 ```
 
-## ⚡ Performance notes
+## ⚡ Performance
 
-`Levenshtein` and `Jaro` (and so `Jaro_Winkler`) use bit-parallel kernels; results
-are bit-for-bit what the earlier scalar code returned, except for the corrections
-listed under "Behavior changes" (`test/differential.cc` compares against a frozen
-copy, `test/legacy_metrics.h`, and states exactly which input classes differ).
+`Levenshtein` and `Jaro` (and so `Jaro_Winkler`) use bit-parallel kernels.
 
-- **Levenshtein, default costs (1, 1).** Common prefix and suffix are trimmed, then
-  Myers' bit-vector algorithm advances 64 cells of the table per word operation
-  (one word up to 64 characters, Hyyrö's block form beyond). Other costs use the
-  weighted dynamic program, on the stack instead of the heap.
-- **Jaro.** One pass over the second string; the window search for the first
-  unused equal character in the first is a mask operation
-  (`peq[c] & ~used & window`, lowest set bit) instead of a scan.
+- **Levenshtein, default costs (1, 1).** The common prefix and suffix are
+  trimmed, then Myers' bit-vector algorithm advances 64 cells of the table per
+  word operation (one word up to 64 characters, Hyyrö's block form beyond). Other
+  costs use the weighted dynamic program, kept on the stack.
+- **Jaro.** One pass over the second string. The first unused equal character of
+  the first string inside the window is a mask operation
+  (`peq[c] & ~used & window`, lowest set bit).
 - **No allocation per call.** Strings of up to 64 characters keep their character
   masks on the stack; longer ones use thread-local scratch that is reused.
-- **Case folding on the fly.** With `icase` the metric folds into a stack buffer
-  (heap past 512 characters) inside the kernel rather than building two upper-cased
-  `std::string`s in the base class.
+- **Case folding on the fly.** With `icase`, the metric folds into a stack buffer
+  (heap past 512 characters) inside the kernel.
 
-`bench/bench.cc` compares the current code, the frozen legacy code and
-[rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) (fetched only by the
-bench target): `cmake -B build -DSTRING_SIMILARITY_BUILD_BENCH=ON -DCMAKE_BUILD_TYPE=Release
-&& cmake --build build --target string_similarity_bench && ./build/string_similarity_bench`.
-Indicative numbers (Apple Silicon, ns per call; rapidfuzz computes the standard
-Jaro; the "before" Jaro rows time the old, non-standard algorithm):
+Apple Silicon, ns per call; rapidfuzz computes the standard Jaro:
 
-| workload | before | now | rapidfuzz |
-|---|---|---|---|
-| Levenshtein, random words | 90-95 | 39 | 67-75 |
-| Levenshtein, 300 chars | 110 us | 2.3 us | 3.2 us |
-| Levenshtein, 3000 chars | 11.3 ms | 250 us | 230-250 us |
-| Jaro, random words | 117 | 77 | 66 |
-| Jaro, 3000 chars | 3.9 ms | 26 us | 22 us |
+| workload | string-similarity | [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) |
+|---|---|---|
+| Levenshtein, random words | 39 | 67-75 |
+| Levenshtein, 300 chars | 2.3 us | 3.2 us |
+| Levenshtein, 3000 chars | 250 us | 230-250 us |
+| Jaro, random words | 77 | 66 |
+| Jaro, 3000 chars | 26 us | 22 us |
 
-## ⚠️ Behavior changes
+```sh
+cmake -B build -DSTRING_SIMILARITY_BUILD_BENCH=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target string_similarity_bench && ./build/string_similarity_bench
+```
 
-Three bugs were corrected; results change for these inputs and only these.
-
-- **`Jaro_Winkler` computes Jaro-Winkler.** It used to return the plain Jaro score
-  (its CRTP base dispatched to `Jaro`) and `name()` said so. It is now its own
-  `StringMetric` (no longer a subclass of `Jaro`): similarity `jd + l * p * (1 - jd)`
-  when `jd > bt`, with `l` the common prefix (at most 4). `p` (0.1) and `bt` (0.7)
-  keep their meaning and bounds; both constructors validate them.
-- **`Jaro` is the standard algorithm.** One pass over the second string; each
-  character takes the first unused equal character of the first within
-  `floor(max(|a|, |b|) / 2) - 1` positions (0 at minimum); transpositions are
-  `floor(out-of-order matches / 2)`. Before, two independent greedy passes were
-  combined, transpositions were `t / 2.0`, and two one-character strings equal only
-  after case folding scored 0. Results differ for strings with repeated characters
-  and odd out-of-order counts. Oracle: a brute-force reference in the tests and
-  rapidfuzz-cpp (agreement to 1e-12 on a million random pairs).
-- **`Levenshtein` with an insert/delete cost other than 1** seeded its left column
-  with `i + 1` instead of `(i + 1) * cost`, giving wrong distances. Unit costs were
-  unaffected. Oracle: the textbook full-matrix DP.
-
-Three more followed:
-
-- **`PhoneticMetric`** encodes both operands (and the comparand of the bound-string
-  form) before the inner metric runs. Its two-argument and one-argument calls used
-  to compare the raw strings. Oracle: encode with the encoder, then compare the codes.
-- **`Levenshtein` with both costs 0** returns distance 0 (similarity 1) instead of
-  0 / 0 = NaN: every edit is free.
-- **`Sorensen_Dice`** counts bigrams as a multiset, the standard definition
-  `2 * |shared| / (|b1| + |b2|)`; it used distinct bigrams, so repeated bigrams
-  ("aaaa") were undercounted.
-
-Other metrics were checked against brute-force oracles and match them.
+The bench target alone fetches rapidfuzz-cpp. [CHANGELOG.md](CHANGELOG.md) has
+the changes to results and speed, with before and after numbers.
 
 ## 🤝 Contributing
 

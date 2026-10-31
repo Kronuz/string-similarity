@@ -22,22 +22,15 @@
  */
 
 
-// Differential test: every metric whose kernel was optimized must return exactly
-// (bit for bit) what the frozen legacy implementation returns, EXCEPT for the
-// input classes whose behavior was deliberately corrected (see README, "Behavior
-// changes"). In those classes the legacy result is a known bug; the new result
-// must equal the independent oracle (test/oracle.h) and the test asserts the two
-// really differ somewhere (so the class list cannot silently go stale):
-//   Levenshtein, insert/delete cost != 1: the left column was seeded with i + 1
-//     instead of (i + 1) * cost.
-//   Levenshtein, both costs 0: 0 / 0 (NaN) before, distance 0 now.
-//   Jaro: repeated characters (the legacy two-pass matching is not the standard
-//     one-pass), an odd number of out-of-order matches (legacy transpositions
-//     were t / 2.0, the standard is integer t / 2), and two one-character strings
-//     that are equal after case folding (legacy window wrapped around to empty).
-//   Jaro_Winkler: legacy dispatched to plain Jaro, so every pair with a common
-//     prefix and Jaro similarity above the boost threshold changes (plus the
-//     Jaro classes above).
+// Differential test: each bit-parallel kernel returns bit for bit what
+// test/legacy_metrics.h returns, except in the input classes CHANGELOG.md lists as
+// fixed. There the result equals the oracle (test/oracle.h), and the test asserts
+// that legacy and oracle differ somewhere, so the class list cannot go stale:
+//   Levenshtein: insert/delete cost != 1, or both costs 0.
+//   Jaro: repeated characters, an odd number of out-of-order matches, and two
+//     one-character strings equal after case folding.
+//   Jaro_Winkler: a common prefix with Jaro above the boost threshold, plus the
+//     Jaro classes.
 
 #include <algorithm>
 #include <cstdint>
