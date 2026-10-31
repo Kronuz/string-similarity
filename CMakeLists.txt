@@ -58,7 +58,28 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(string_similarity_test PRIVATE string_similarity)
   add_test(NAME string_similarity COMMAND string_similarity_test)
 
+  # Differential test: the optimized kernels must match the frozen legacy
+  # implementation (test/legacy_metrics.h) bit for bit.
+  add_executable(string_similarity_differential test/differential.cc)
+  target_link_libraries(string_similarity_differential PRIVATE string_similarity)
+  add_test(NAME string_similarity_differential COMMAND string_similarity_differential)
+
   # A runnable tour of the library (not a test): build & run ./build/string_similarity_demo
   add_executable(string_similarity_demo examples/demo.cc)
   target_link_libraries(string_similarity_demo PRIVATE string_similarity)
+endif()
+
+# Optional benchmark against rapidfuzz-cpp (and the frozen legacy implementation).
+# The comparator is fetched only here: it is never a dependency of the library target.
+option(STRING_SIMILARITY_BUILD_BENCH "Build bench/bench.cc (fetches rapidfuzz-cpp)" OFF)
+if(STRING_SIMILARITY_BUILD_BENCH AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  FetchContent_Declare(
+    rapidfuzz
+    GIT_REPOSITORY https://github.com/rapidfuzz/rapidfuzz-cpp.git
+    GIT_TAG        v3.3.4
+  )
+  FetchContent_MakeAvailable(rapidfuzz)
+  add_executable(string_similarity_bench bench/bench.cc)
+  target_link_libraries(string_similarity_bench PRIVATE string_similarity rapidfuzz::rapidfuzz)
+  target_compile_options(string_similarity_bench PRIVATE -O3)
 endif()

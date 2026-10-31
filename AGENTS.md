@@ -9,6 +9,7 @@ easy to fall into.
 
 ```
 basic_string_metric.h        CRTP base StringMetric<Impl> + the Counter helper. The shared surface. Header.
+bitparallel.h                Internal bit-parallel kernels (Myers/Hyyro edit distance), mask tables, on-the-fly case folding.
 levenshtein.h                Edit distance, normalized by the longer length.
 jaro.h                       Jaro similarity.
 jaro_winkler.h               Jaro with a shared-prefix boost; derives from Jaro.
@@ -18,6 +19,8 @@ jaccard.h                    Jaccard index over character sets.
 sorensen_dice.h              Sørensen-Dice over character bigrams.
 phonetic_metric.h             PhoneticMetric<Encoder, Metric>: encode phonetically, score the codes.
 test/test.cc                 Runnable smoke test: asserts known values for every metric.
+test/differential.cc         Bit-for-bit comparison of Levenshtein/Jaro/Jaro_Winkler against test/legacy_metrics.h (frozen old code; never edit it).
+bench/bench.cc               Benchmark vs legacy and rapidfuzz-cpp (optional CMake target; comparator fetched only there).
 examples/demo.cc             A runnable tour (not a test).
 CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex; CTest test `string_similarity`.
 LICENSE                      MIT, Copyright (c) 2015-2019 Dubalu LLC.
@@ -89,6 +92,7 @@ track both at `GIT_TAG main`, like the rest of the family.
   `friend class StringMetric<Impl>;` (or `friend Jaro;` for Jaro-Winkler) so the
   base can call its private kernels. Keep the friend declaration when adding a
   metric.
+- **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h`, quirks included (Levenshtein's left column is seeded with `i + 1` for any cost; Jaro's matching is two independent greedy passes). Change those only as a deliberate, separate decision.
 - **The dispatch is fixed at the StringMetric<...> layer.** For `Jaro_Winkler`
   and `PhoneticMetric`, the base's CRTP `Impl` is the parent (`Jaro`, the inner
   `Metric`), so the public two-argument call reaches the parent's kernel, not the

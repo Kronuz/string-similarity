@@ -87,6 +87,40 @@ cmake -B build && cmake --build build && ctest --test-dir build
 ./build/string_similarity_demo
 ```
 
+## ⚡ Performance notes
+
+`Levenshtein` and `Jaro` (and so `Jaro_Winkler`) use bit-parallel kernels; results
+are bit-for-bit what the earlier scalar code returned (`test/differential.cc`
+compares against a frozen copy, `test/legacy_metrics.h`).
+
+- **Levenshtein, default costs (1, 1).** Common prefix and suffix are trimmed, then
+  Myers' bit-vector algorithm advances 64 cells of the table per word operation
+  (one word up to 64 characters, Hyyrö's block form beyond). Other costs keep the
+  original dynamic program, on the stack instead of the heap.
+- **Jaro.** The window search for the first unused equal character is a mask
+  operation (`peq[c] & ~used & window`, lowest set bit) instead of a scan, in both
+  directions as before.
+- **No allocation per call.** Strings of up to 64 characters keep their character
+  masks on the stack; longer ones use thread-local scratch that is reused.
+- **Case folding on the fly.** With `icase` the metric folds into a stack buffer
+  (heap past 512 characters) inside the kernel rather than building two upper-cased
+  `std::string`s in the base class.
+
+`bench/bench.cc` compares the current code, the frozen legacy code and
+[rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) (fetched only by the
+bench target): `cmake -B build -DSTRING_SIMILARITY_BUILD_BENCH=ON -DCMAKE_BUILD_TYPE=Release
+&& cmake --build build --target string_similarity_bench && ./build/string_similarity_bench`.
+Indicative numbers (Apple Silicon, ns per call; rapidfuzz computes the standard
+Jaro, so its Jaro column is not the same function):
+
+| workload | before | now | rapidfuzz |
+|---|---|---|---|
+| Levenshtein, random words | 90-95 | 39 | 67-75 |
+| Levenshtein, 300 chars | 110 us | 2.3 us | 3.2 us |
+| Levenshtein, 3000 chars | 11.3 ms | 250 us | 230-250 us |
+| Jaro, random words | 117 | 77 | 66 |
+| Jaro, 3000 chars | 3.9 ms | 26 us | 22 us |
+
 ## 🤝 Contributing
 
 Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) first. CI must
