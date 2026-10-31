@@ -47,8 +47,8 @@ plus their one-argument forms, and `_name` / `_description`.
   multiplying back through the longer length.
 - **Jaro** counts matching characters within a sliding window and their
   transpositions, combining them into the standard Jaro formula. **Jaro_Winkler**
-  derives from Jaro and adds the shared-prefix boost (up to four characters,
-  scaled by `p`, applied only above a boost threshold `bt`).
+  is its own metric over `Jaro::jaro` and adds the shared-prefix boost (up to four
+  characters, scaled by `p`, applied only above a boost threshold `bt`).
 - **LCSubstr** and **LCSubsequence** each run a two-row DP — contiguous run length
   for the former, classic LCS for the latter — and divide by `max(len1, len2)` to
   get a similarity in `[0, 1]`.
@@ -65,17 +65,14 @@ plus their one-argument forms, and `_name` / `_description`.
 
 ## The dispatch subtlety
 
-The CRTP `Impl` is fixed at the layer that names `StringMetric<...>`. `Jaro` is
-`StringMetric<Jaro>`, and `Jaro_Winkler` derives from `Jaro`, so for a
-`Jaro_Winkler` the base still casts to `const Jaro*` and calls
-`Jaro::_similarity` — the public two-argument `similarity()` does *not* reach
-`Jaro_Winkler::_similarity`, so the prefix boost is not applied through that path.
-The same holds for `PhoneticMetric`, whose `Impl` is the inner `Metric`, not
-`PhoneticMetric`: the public two-argument call runs the inner metric on the raw
+The CRTP `Impl` is fixed at the layer that names `StringMetric<...>`, and the base
+calls that class's kernel. A metric that derives from another metric therefore
+runs the parent's kernel unless it names itself: `Jaro_Winkler` is its own
+`StringMetric<Jaro_Winkler>` for this reason. `PhoneticMetric` derives from its
+inner `Metric`, so the public two-argument call runs the inner metric on the raw
 strings, and the phonetic encoding is exercised through the bound-string
-constructor path. This is upstream Xapiand behavior, preserved verbatim. The test
-asserts the values the public API actually returns and verifies the phonetic
-collapse through the encoder directly.
+constructor path. This is upstream Xapiand behavior, preserved; the test verifies
+the phonetic collapse through the encoder directly.
 
 ## Why this shape
 

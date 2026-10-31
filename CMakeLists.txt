@@ -64,6 +64,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(string_similarity_differential PRIVATE string_similarity)
   add_test(NAME string_similarity_differential COMMAND string_similarity_differential)
 
+  # Correctness test: every metric against independent textbook oracles (test/oracle.h).
+  add_executable(string_similarity_correctness test/correctness.cc)
+  target_link_libraries(string_similarity_correctness PRIVATE string_similarity)
+  add_test(NAME string_similarity_correctness COMMAND string_similarity_correctness)
+
   # A runnable tour of the library (not a test): build & run ./build/string_similarity_demo
   add_executable(string_similarity_demo examples/demo.cc)
   target_link_libraries(string_similarity_demo PRIVATE string_similarity)
@@ -82,4 +87,8 @@ if(STRING_SIMILARITY_BUILD_BENCH AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOU
   add_executable(string_similarity_bench bench/bench.cc)
   target_link_libraries(string_similarity_bench PRIVATE string_similarity rapidfuzz::rapidfuzz)
   target_compile_options(string_similarity_bench PRIVATE -O3)
+  # Jaro / Jaro-Winkler against rapidfuzz on a million random pairs (not part of ctest).
+  add_executable(string_similarity_rapidfuzz_check test/rapidfuzz_check.cc)
+  target_link_libraries(string_similarity_rapidfuzz_check PRIVATE string_similarity rapidfuzz::rapidfuzz)
+  target_compile_options(string_similarity_rapidfuzz_check PRIVATE -O2)
 endif()

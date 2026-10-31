@@ -12,7 +12,7 @@ basic_string_metric.h        CRTP base StringMetric<Impl> + the Counter helper. 
 bitparallel.h                Internal bit-parallel kernels (Myers/Hyyro edit distance), mask tables, on-the-fly case folding.
 levenshtein.h                Edit distance, normalized by the longer length.
 jaro.h                       Jaro similarity.
-jaro_winkler.h               Jaro with a shared-prefix boost; derives from Jaro.
+jaro_winkler.h               Jaro with a shared-prefix boost; uses `Jaro::jaro`.
 lcsubstr.h                   Longest common substring.
 lcsubsequence.h              Longest common subsequence.
 jaccard.h                    Jaccard index over character sets.
@@ -89,15 +89,16 @@ track both at `GIT_TAG main`, like the rest of the family.
   `_similarity` runs. A subclass kernel sees normalized, non-trivial input; keep it
   that way rather than re-checking inside a metric.
 - **Subclasses are befriended.** Each metric declares
-  `friend class StringMetric<Impl>;` (or `friend Jaro;` for Jaro-Winkler) so the
+  `friend class StringMetric<Impl>;` (Jaro_Winkler is its own `StringMetric<Jaro_Winkler>` and calls the static `Jaro::jaro`) so the
   base can call its private kernels. Keep the friend declaration when adding a
   metric.
-- **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h`, quirks included (Levenshtein's left column is seeded with `i + 1` for any cost; Jaro's matching is two independent greedy passes). Change those only as a deliberate, separate decision.
-- **The dispatch is fixed at the StringMetric<...> layer.** For `Jaro_Winkler`
-  and `PhoneticMetric`, the base's CRTP `Impl` is the parent (`Jaro`, the inner
-  `Metric`), so the public two-argument call reaches the parent's kernel, not the
-  derived one. This is intentional, preserved-from-upstream behavior. Don't "fix"
-  it by re-templating the base; tests assert the values the API actually returns.
+- **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h` except for the corrected classes listed at the top of `test/differential.cc` (Levenshtein insert/delete cost != 1, Jaro matching, Jaro_Winkler); everywhere else old == new is enforced. `test/correctness.cc` checks every metric against the textbook oracles in `test/oracle.h`; `test/rapidfuzz_check.cc` (bench option) checks Jaro/Jaro_Winkler against rapidfuzz.
+- **The dispatch is fixed at the StringMetric<...> layer.** For `PhoneticMetric`,
+  the base's CRTP `Impl` is the inner `Metric`, so the public two-argument call
+  reaches the inner kernel on the raw strings, not `PhoneticMetric`'s. This is
+  preserved-from-upstream behavior, reported as an open owner decision. A metric
+  that must run its own kernel names itself in `StringMetric<...>` (as
+  `Jaro_Winkler` does).
 
 ## How to extend
 

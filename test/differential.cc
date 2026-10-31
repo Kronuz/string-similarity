@@ -23,8 +23,22 @@
 
 
 // Differential test: every metric whose kernel was optimized must return exactly
-// (bit for bit) what the frozen legacy implementation returns.
+// (bit for bit) what the frozen legacy implementation returns, EXCEPT for the
+// input classes whose behavior was deliberately corrected (see README, "Behavior
+// changes"). In those classes the legacy result is a known bug; the new result
+// must equal the independent oracle (test/oracle.h) and the test asserts the two
+// really differ somewhere (so the class list cannot silently go stale):
+//   Levenshtein, insert/delete cost != 1: the left column was seeded with i + 1
+//     instead of (i + 1) * cost.
+//   Jaro: repeated characters (the legacy two-pass matching is not the standard
+//     one-pass), an odd number of out-of-order matches (legacy transpositions
+//     were t / 2.0, the standard is integer t / 2), and two one-character strings
+//     that are equal after case folding (legacy window wrapped around to empty).
+//   Jaro_Winkler: legacy dispatched to plain Jaro, so every pair with a common
+//     prefix and Jaro similarity above the boost threshold changes (plus the
+//     Jaro classes above).
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -37,6 +51,7 @@
 #include "jaro.h"
 #include "jaro_winkler.h"
 #include "legacy_metrics.h"
+#include "oracle.h"
 
 static std::mt19937_64 rng(0x5eed1234abcdULL);
 static size_t checks = 0, failures = 0;
@@ -78,6 +93,100 @@ static std::string mutate(std::string s, unsigned edits, unsigned alphabet, unsi
 	return s;
 }
 
+static size_t g_changed[8] = {0};
+enum { kLev, kLevBound, kJaro, kJaroBound, kJW, kJWBound };
+
+// Folded text, as the library folds it (only the folding is shared; the metric is not).
+static std::string fold(const std::string& s, bool icase) { return icase ? strings::upper(s) : s; }
+
+// Jaro classes whose result is NOT corrected (new must equal legacy there).
+static bool jaro_unchanged(const std::string& a, const std::string& b, bool icase) {
+	const auto fa = fold(a, icase), fb = fold(b, icase);
+	if (a.empty() || b.empty() || a == b) return true;  // base cases in StringMetric
+	if (std::max(fa.size(), fb.size()) == 1) return false;
+	for (const auto* s : {&fa, &fb}) {
+		auto t = *s;
+		std::sort(t.begin(), t.end());
+		if (std::adjacent_find(t.begin(), t.end()) != t.end()) return false;
+	}
+	return oracle::jaro(fa, fb).mismatched % 2 == 0;
+}
+
+static double jw_prefix_boosts(const std::string& a, const std::string& b, bool icase) {
+	const auto fa = fold(a, icase), fb = fold(b, icase);
+	return fa.size() && fb.size() && fa[0] == fb[0] && oracle::jaro(fa, fb).value > 0.7;
+}
+
+// The O(n*m) Levenshtein oracle is skipped for long pairs (test/correctness.cc covers those).
+static bool skip_oracle(const char* what, const std::string& x, const std::string& y) {
+	return what[0] == 'L' && x.size() * y.size() > 20000;
+}
+
+// One metric against legacy (where unchanged) and the oracle (always).
+//   want(x, y, dist): the oracle value for the pair, base cases included.
+template <typename New, typename Old, typename Unchanged>
+static void compare_changed(const New& n, const Old& o, const char* what, int cls, const std::string& a, const std::string& b, bool icase, Unchanged unchanged, double (*want)(const std::string&, const std::string&, bool, bool)) {
+	for (int dir = 0; dir < 2; ++dir) {
+		const auto& x = dir ? b : a;
+		const auto& y = dir ? a : b;
+		const bool same_as_legacy = unchanged(x, y);
+		for (bool dist : {true, false}) {
+			const double got = dist ? n.distance(x, y) : n.similarity(x, y);
+			const double old = dist ? o.distance(x, y) : o.similarity(x, y);
+			if (!skip_oracle(what, x, y)) expect(got, want(x, y, dist, icase), what, x, y, icase);
+			if (same_as_legacy) {
+				expect(got, old, what, x, y, icase);
+			} else if (!same(got, old)) {
+				++g_changed[cls];
+			}
+		}
+		if (dir == 0 && a.size() * b.size() > 20000) break;
+	}
+}
+
+template <typename New, typename Old, typename Unchanged>
+static void compare_changed_bound(const New& n, const Old& o, const char* what, int cls, const std::string& a, const std::string& b, bool icase, Unchanged unchanged, double (*want)(const std::string&, const std::string&, bool, bool)) {
+	// A bound metric stores its string already folded, and the base-case equality
+	// test compares that folded copy with the raw argument.
+	const std::string ao = fold(a, icase);
+	const bool same_as_legacy = unchanged(ao, b);
+	for (bool dist : {true, false}) {
+		const double got = dist ? n.distance(b) : n.similarity(b);
+		const double old = dist ? o.distance(b) : o.similarity(b);
+		if (!skip_oracle(what, a, b)) expect(got, want(ao, b, dist, icase), what, a, b, icase);
+		if (same_as_legacy) {
+			expect(got, old, what, a, b, icase);
+		} else if (!same(got, old)) {
+			++g_changed[cls];
+		}
+	}
+}
+
+static double want_jaro(const std::string& a, const std::string& b, bool dist, bool icase) {
+	double s;
+	if (a.empty() || b.empty()) s = 0.0;
+	else if (a == b) s = 1.0;
+	else s = oracle::jaro(fold(a, icase), fold(b, icase)).value;
+	return dist ? 1.0 - s : s;
+}
+
+static double want_jw(const std::string& a, const std::string& b, bool dist, bool icase) {
+	double s;
+	if (a.empty() || b.empty()) s = 0.0;
+	else if (a == b) s = 1.0;
+	else s = oracle::jaro_winkler(fold(a, icase), fold(b, icase));
+	return dist ? 1.0 - s : s;
+}
+
+static double want_lev(const std::string& a, const std::string& b, bool dist, bool icase) {
+	if (a.empty() || b.empty()) return dist ? 1.0 : 0.0;
+	if (a == b) return dist ? 0.0 : 1.0;
+	// Not equal before folding: the textbook formula (0 / 0 for zero costs).
+	const auto fa = fold(a, icase), fb = fold(b, icase);
+	const double d = (double)oracle::lev_raw(fa, fb, g_c0, g_c1) / (std::max(g_c0, g_c1) * std::max(fa.size(), fb.size()));
+	return dist ? d : 1.0 - d;
+}
+
 template <typename New, typename Old>
 static void compare(const New& n, const Old& o, const char* what, const std::string& a, const std::string& b, bool icase) {
 	expect(n.distance(a, b), o.distance(a, b), what, a, b, icase);
@@ -87,12 +196,6 @@ static void compare(const New& n, const Old& o, const char* what, const std::str
 	expect(n.similarity(b, a), o.similarity(b, a), what, b, a, icase);
 }
 
-template <typename New, typename Old>
-static void compare_bound(const New& n, const Old& o, const char* what, const std::string& a, const std::string& b, bool icase) {
-	expect(n.distance(b), o.distance(b), what, a, b, icase);
-	expect(n.similarity(b), o.similarity(b), what, a, b, icase);
-}
-
 static void run_pair(const std::string& a, const std::string& b) {
 	static const size_t costs[][2] = {{1, 1}, {2, 2}, {1, 2}, {2, 1}, {3, 1}, {1, 3}, {0, 1}, {1, 0}, {0, 0}};
 	for (bool icase : {false, true}) {
@@ -100,25 +203,28 @@ static void run_pair(const std::string& a, const std::string& b) {
 			g_c0 = c[0]; g_c1 = c[1];
 			Levenshtein nl(icase, c[0], c[1]);
 			legacy::Levenshtein ol(icase, c[0], c[1]);
-			compare(nl, ol, "Levenshtein", a, b, icase);
+			const bool lev_same = c[1] == 1;  // insert/delete cost 1: unchanged
+			compare_changed(nl, ol, "Levenshtein", kLev, a, b, icase, [&](const std::string&, const std::string&) { return lev_same; }, want_lev);
 			Levenshtein nlb(a, icase, c[0], c[1]);
 			legacy::Levenshtein olb(a, icase, c[0], c[1]);
-			compare_bound(nlb, olb, "Levenshtein(bound)", a, b, icase);
+			compare_changed_bound(nlb, olb, "Levenshtein(bound)", kLevBound, a, b, icase, [&](const std::string&, const std::string&) { return lev_same; }, want_lev);
 			// Only the default costs for long inputs: the legacy kernel is O(n*m).
 			if (a.size() * b.size() > 20000) break;
 		}
+		auto ju = [&](const std::string& x, const std::string& y) { return jaro_unchanged(x, y, icase); };
+		auto wu = [&](const std::string& x, const std::string& y) { return jaro_unchanged(x, y, icase) && !jw_prefix_boosts(x, y, icase); };
 		Jaro nj(icase);
 		legacy::Jaro oj(icase);
-		compare(nj, oj, "Jaro", a, b, icase);
+		compare_changed(nj, oj, "Jaro", kJaro, a, b, icase, ju, want_jaro);
 		Jaro njb(a, icase);
 		legacy::Jaro ojb(a, icase);
-		compare_bound(njb, ojb, "Jaro(bound)", a, b, icase);
+		compare_changed_bound(njb, ojb, "Jaro(bound)", kJaroBound, a, b, icase, ju, want_jaro);
 		Jaro_Winkler nw(icase);
 		legacy::Jaro_Winkler ow(icase);
-		compare(nw, ow, "Jaro_Winkler", a, b, icase);
+		compare_changed(nw, ow, "Jaro_Winkler", kJW, a, b, icase, wu, want_jw);
 		Jaro_Winkler nwb(a, icase);
 		legacy::Jaro_Winkler owb(a, icase);
-		compare_bound(nwb, owb, "Jaro_Winkler(bound)", a, b, icase);
+		compare_changed_bound(nwb, owb, "Jaro_Winkler(bound)", kJWBound, a, b, icase, wu, want_jw);
 	}
 }
 
@@ -172,6 +278,14 @@ int main(int argc, char**) {
 	}
 
 	std::printf("%zu checks, %zu failures\n", checks, failures);
+	static const char* names[] = {"Levenshtein", "Levenshtein(bound)", "Jaro", "Jaro(bound)", "Jaro_Winkler", "Jaro_Winkler(bound)"};
+	for (int k = 0; k <= kJWBound; ++k) {
+		std::printf("deliberate differences from legacy, %s: %zu\n", names[k], g_changed[k]);
+		if (!g_changed[k]) {
+			std::printf("MISMATCH: no pair exercised the corrected class for %s\n", names[k]);
+			++failures;
+		}
+	}
 	if (failures) return 1;
 	std::printf("all differential checks passed\n");
 	return 0;

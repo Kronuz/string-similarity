@@ -73,14 +73,8 @@ int main() {
 	}
 
 	// --- Jaro / Jaro-Winkler ----------------------------------------------
-	// The textbook pair MARTHA / MARHTA: Jaro ~0.9444. The Jaro-Winkler boost
-	// (prefix "MAR", scaling p = 0.1) would lift it to ~0.9611, but it is only
-	// applied by Jaro_Winkler::_similarity, which the public two-argument
-	// similarity() does NOT reach: StringMetric's CRTP Impl for Jaro_Winkler is
-	// Jaro (Jaro_Winkler derives from Jaro = StringMetric<Jaro>), so the base
-	// dispatches to Jaro::_similarity. So through the public API both report the
-	// plain Jaro score. This matches the upstream Xapiand behavior, which we
-	// preserve verbatim; we assert the value the API actually returns.
+	// The textbook pair MARTHA / MARHTA: Jaro 0.9444, and the Jaro-Winkler boost
+	// (prefix "MAR", p = 0.1) lifts it to 0.9611. DWAYNE / DUANE: 0.8222 and 0.84.
 	{
 		Jaro jaro(/*icase*/ false);
 		close_to(jaro.similarity(std::string("MARTHA"), std::string("MARHTA")),
@@ -88,15 +82,11 @@ int main() {
 
 		Jaro_Winkler jw(/*icase*/ false, /*p*/ 0.1, /*bt*/ 0.7);
 		close_to(jw.similarity(std::string("MARTHA"), std::string("MARHTA")),
-			0.944444, 1e-4, "Jaro_Winkler (public API) MARTHA/MARHTA == Jaro 0.9444");
-
-		// The Jaro-Winkler prefix boost itself: call _similarity directly via a
-		// tiny friend-free shim is not possible here, so verify the documented
-		// 0.9611 through the protected path exercised by the demo's construction
-		// is consistent: plain Jaro stays at 0.9444 and never exceeds it here.
-		double j = jaro.similarity(std::string("DWAYNE"), std::string("DUANE"));
-		double w = jw.similarity(std::string("DWAYNE"), std::string("DUANE"));
-		close_to(w, j, 1e-9, "Jaro_Winkler public API equals Jaro for DWAYNE/DUANE");
+			0.961111, 1e-4, "Jaro_Winkler MARTHA/MARHTA ~0.9611");
+		close_to(jaro.similarity(std::string("DWAYNE"), std::string("DUANE")),
+			0.822222, 1e-4, "Jaro DWAYNE/DUANE ~0.8222");
+		close_to(jw.similarity(std::string("DWAYNE"), std::string("DUANE")),
+			0.84, 1e-4, "Jaro_Winkler DWAYNE/DUANE == 0.84");
 	}
 
 	// --- Longest Common Substring -----------------------------------------

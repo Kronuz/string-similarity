@@ -69,7 +69,7 @@ private:
 		}
 
 		for (size_t i = 0; i < len1; ++i) {
-			col[0] = i + 1;
+			col[0] = (i + 1) * _ins_del_cost;
 			for (size_t j = 0; j < len2; ++j) {
 				col[j + 1] = std::min({ prev_col[j + 1] + _ins_del_cost, col[j] + _ins_del_cost, prev_col[j] + (str1[i] == str2[j] ? 0 : _subst_cost) });
 			}
@@ -85,8 +85,7 @@ private:
 		size_t raw;
 		if (_subst_cost == 1 && _ins_del_cost == 1) {
 			// Plain unit costs (the default): bit-parallel edit distance. Other costs
-			// keep the original dynamic program, which seeds its left column with
-			// i + 1 whatever the insert/delete cost is (not a scaled edit distance).
+			// use the weighted dynamic program.
 			raw = strsim_detail::levenshtein_unit(str1, str2);
 		} else {
 			raw = _raw_weighted(str1, str2);

@@ -98,16 +98,17 @@ int main() {
 	for (auto* v : {&rnd, &near}) for (auto& [a, b] : *v) {
 		std::string x(a), y(b);
 		if (lev.distance(x, y) != olev.distance(x, y)) ++bad;
-		if (jaro.similarity(x, y) != ojaro.similarity(x, y)) ++bad;
+		if (std::fabs(jaro.similarity(x, y) - rapidfuzz::jaro_similarity(x, y)) > 1e-12) ++bad;  // standard Jaro: the oracle is rapidfuzz
+		if (std::fabs(jw.similarity(x, y) - rapidfuzz::jaro_winkler_similarity(x, y, 0.1)) > 1e-12) ++bad;
 	}
-	std::printf("identity vs legacy: %zu mismatches\n", bad);
+	std::printf("identity (Levenshtein vs legacy, Jaro/Jaro_Winkler vs rapidfuzz): %zu mismatches\n", bad);
 	if (bad) return 1;
 
 	auto lev_pair = [&](auto& m, auto& v) { return [&](size_t i) { return m.distance(v[i].first, v[i].second); }; };
 	auto sim_pair = [&](auto& m, auto& v) { return [&](size_t i) { return m.similarity(v[i].first, v[i].second); }; };
 	auto rf_lev = [&](auto& v) { return [&](size_t i) { return rapidfuzz::levenshtein_normalized_distance(v[i].first, v[i].second); }; };
 	auto rf_jaro = [&](auto& v) { return [&](size_t i) { return rapidfuzz::jaro_similarity(v[i].first, v[i].second); }; };
-	auto rf_jw = [&](auto& v) { return [&](size_t i) { return rapidfuzz::jaro_winkler_similarity(v[i].first, v[i].second, 0.1, 0.7); }; };
+	auto rf_jw = [&](auto& v) { return [&](size_t i) { return rapidfuzz::jaro_winkler_similarity(v[i].first, v[i].second, 0.1); }; };
 
 	for (int rep = 0; rep < 2; ++rep) {  // second row is the A/A rerun: the noise floor
 		row(rep ? "Levenshtein random words (A/A rerun)" : "Levenshtein random words", bench(N, lev_pair(olev, rnd)), bench(N, lev_pair(lev, rnd)), bench(N, rf_lev(rnd)));
@@ -124,6 +125,6 @@ int main() {
 	row("Jaro_Winkler near words icase=true", bench(N, sim_pair(ojwi, near)), bench(N, sim_pair(jwi, near)), bench(N, rf_jw(near)));
 	row("Jaro 300 chars", bench(500, [&](size_t) { return ojaro.similarity(L1, L2); }), bench(5000, [&](size_t) { return jaro.similarity(L1, L2); }), bench(5000, [&](size_t) { return rapidfuzz::jaro_similarity(L1, L2); }));
 	row("Jaro 3000 chars", bench(5, [&](size_t) { return ojaro.similarity(L3, L4); }), bench(50, [&](size_t) { return jaro.similarity(L3, L4); }), bench(50, [&](size_t) { return rapidfuzz::jaro_similarity(L3, L4); }));
-	std::printf("(Jaro/Jaro_Winkler results are not the standard Jaro: they match the legacy library, not rapidfuzz.)\n");
+	std::printf("(The legacy Jaro columns time the old, non-standard algorithm; the new Jaro/Jaro_Winkler match rapidfuzz.)\n");
 	return 0;
 }

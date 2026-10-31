@@ -25,7 +25,6 @@
 
 #include <algorithm>                              // for std::min, std::mismatch
 #include <cstddef>                                // for std::size_t
-#include <iterator>                               // for std::distance
 #include <stdexcept>                              // for std::invalid_argument
 #include <string>                                 // for std::to_string
 #include <string_view>                            // for std::string_view
@@ -37,9 +36,12 @@
 /*
  * The Jaro–Winkler distance.
  *
- * It is a variant of the Jaro distance metric.
+ * The Jaro similarity plus a boost for a shared prefix: when the Jaro
+ * similarity jd is above the boost threshold `bt` (default 0.7), the result is
+ * jd + l * p * (1 - jd), where l is the length of the common prefix (at most 4)
+ * and p the scaling factor (default 0.1, at most 0.25).
  */
-class Jaro_Winkler : public Jaro {
+class Jaro_Winkler : public StringMetric<Jaro_Winkler> {
 protected:
 	// protected (not private) so a consumer can subclass to re-add the
 	// serialise()/unserialise() persistence this library deliberately omits.
@@ -47,40 +49,56 @@ protected:
 	double _bt; // Boost threshold.
 
 private:
-	const size_t MAX_PREFIX_LEN{4};
-	const double MAX_P{0.25};
-	const double MAX_BT{1.0};
+	static constexpr size_t MAX_PREFIX_LEN{4};
+	static constexpr double MAX_P{0.25};
+	static constexpr double MAX_BT{1.0};
 
-	friend Jaro;
+	friend class StringMetric<Jaro_Winkler>;
 
-	size_t len_common_prefix(std::string_view str1, std::string_view str2) const {
-		if (str1.size() > str2.size()) {
-			return std::min(MAX_PREFIX_LEN, (size_t)std::distance(str2.begin(), std::mismatch(str2.begin(), str2.end(), str1.begin()).first));
-		} else {
-			return std::min(MAX_PREFIX_LEN, (size_t)std::distance(str1.begin(), std::mismatch(str1.begin(), str1.end(), str2.begin()).first));
+	static size_t len_common_prefix(std::string_view str1, std::string_view str2) {
+		const size_t n = std::min({MAX_PREFIX_LEN, str1.size(), str2.size()});
+		size_t l = 0;
+		while (l < n && str1[l] == str2[l]) {
+			++l;
 		}
+		return l;
 	}
 
-	double _similarity(std::string_view str1, std::string_view str2) const {
-		const double jd = Jaro::_similarity(str1, str2);
+	// Both operands are already case-folded (if folding applies).
+	double _winkler(std::string_view str1, std::string_view str2) const {
+		const double jd = Jaro::jaro(str1, str2);
 
-		if (jd < _bt) {
+		if (jd <= _bt) {
 			return jd;
 		}
 
 		return jd + (len_common_prefix(str1, str2) * _p * (1.0 - jd));
 	}
 
+	// Case folding happens here, on the fly, rather than in the base class.
+	double _icase_similarity(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
+		strsim_detail::Folded f1(str1, fold1), f2(str2, fold2);
+		return _winkler(f1.view(), f2.view());
+	}
+
+	double _icase_distance(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
+		return 1.0 - _icase_similarity(str1, str2, fold1, fold2);
+	}
+
+	double _similarity(std::string_view str1, std::string_view str2) const {
+		return _winkler(str1, str2);
+	}
+
 	double _similarity(std::string_view str2) const {
-		return _similarity(_str, str2);
+		return _winkler(_str, str2);
 	}
 
 	double _distance(std::string_view str1, std::string_view str2) const {
-		return 1.0 - _similarity(str1, str2);
+		return 1.0 - _winkler(str1, str2);
 	}
 
 	double _distance(std::string_view str2) const {
-		return 1.0 - _similarity(_str, str2);
+		return 1.0 - _winkler(_str, str2);
 	}
 
 	std::string_view _name() const noexcept {
@@ -91,23 +109,30 @@ private:
 		return "Jaro Winkler";
 	}
 
-public:
-	Jaro_Winkler(bool icase=true, double p=0.1, double bt=0.7)
-		: Jaro(icase),
-		  _p(p),
-		  _bt(bt) { }
-
-	template <typename T>
-	Jaro_Winkler(T&& str, bool icase=true, double p=0.1, double bt=0.7)
-		: Jaro(std::forward<T>(str), icase),
-		  _p(p),
-		  _bt(bt)
-	{
+	void _check() const {
 		if (_p < 0.0 || _p > MAX_P) {
 			throw std::invalid_argument("_p should be positive and not exceed " + std::to_string(MAX_P));
 		}
 		if (_bt < 0.0 || _bt > MAX_BT) {
 			throw std::invalid_argument("_bt should be positive and not exceed " + std::to_string(MAX_BT));
 		}
+	}
+
+public:
+	Jaro_Winkler(bool icase=true, double p=0.1, double bt=0.7)
+		: StringMetric<Jaro_Winkler>(icase),
+		  _p(p),
+		  _bt(bt)
+	{
+		_check();
+	}
+
+	template <typename T>
+	Jaro_Winkler(T&& str, bool icase=true, double p=0.1, double bt=0.7)
+		: StringMetric<Jaro_Winkler>(std::forward<T>(str), icase),
+		  _p(p),
+		  _bt(bt)
+	{
+		_check();
 	}
 };

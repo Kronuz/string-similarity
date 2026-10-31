@@ -90,16 +90,17 @@ cmake -B build && cmake --build build && ctest --test-dir build
 ## ⚡ Performance notes
 
 `Levenshtein` and `Jaro` (and so `Jaro_Winkler`) use bit-parallel kernels; results
-are bit-for-bit what the earlier scalar code returned (`test/differential.cc`
-compares against a frozen copy, `test/legacy_metrics.h`).
+are bit-for-bit what the earlier scalar code returned, except for the corrections
+listed under "Behavior changes" (`test/differential.cc` compares against a frozen
+copy, `test/legacy_metrics.h`, and states exactly which input classes differ).
 
 - **Levenshtein, default costs (1, 1).** Common prefix and suffix are trimmed, then
   Myers' bit-vector algorithm advances 64 cells of the table per word operation
-  (one word up to 64 characters, Hyyrö's block form beyond). Other costs keep the
-  original dynamic program, on the stack instead of the heap.
-- **Jaro.** The window search for the first unused equal character is a mask
-  operation (`peq[c] & ~used & window`, lowest set bit) instead of a scan, in both
-  directions as before.
+  (one word up to 64 characters, Hyyrö's block form beyond). Other costs use the
+  weighted dynamic program, on the stack instead of the heap.
+- **Jaro.** One pass over the second string; the window search for the first
+  unused equal character in the first is a mask operation
+  (`peq[c] & ~used & window`, lowest set bit) instead of a scan.
 - **No allocation per call.** Strings of up to 64 characters keep their character
   masks on the stack; longer ones use thread-local scratch that is reused.
 - **Case folding on the fly.** With `icase` the metric folds into a stack buffer
@@ -111,7 +112,7 @@ compares against a frozen copy, `test/legacy_metrics.h`).
 bench target): `cmake -B build -DSTRING_SIMILARITY_BUILD_BENCH=ON -DCMAKE_BUILD_TYPE=Release
 && cmake --build build --target string_similarity_bench && ./build/string_similarity_bench`.
 Indicative numbers (Apple Silicon, ns per call; rapidfuzz computes the standard
-Jaro, so its Jaro column is not the same function):
+Jaro; the "before" Jaro rows time the old, non-standard algorithm):
 
 | workload | before | now | rapidfuzz |
 |---|---|---|---|
@@ -120,6 +121,32 @@ Jaro, so its Jaro column is not the same function):
 | Levenshtein, 3000 chars | 11.3 ms | 250 us | 230-250 us |
 | Jaro, random words | 117 | 77 | 66 |
 | Jaro, 3000 chars | 3.9 ms | 26 us | 22 us |
+
+## ⚠️ Behavior changes
+
+Three bugs were corrected; results change for these inputs and only these.
+
+- **`Jaro_Winkler` computes Jaro-Winkler.** It used to return the plain Jaro score
+  (its CRTP base dispatched to `Jaro`) and `name()` said so. It is now its own
+  `StringMetric` (no longer a subclass of `Jaro`): similarity `jd + l * p * (1 - jd)`
+  when `jd > bt`, with `l` the common prefix (at most 4). `p` (0.1) and `bt` (0.7)
+  keep their meaning and bounds; both constructors validate them.
+- **`Jaro` is the standard algorithm.** One pass over the second string; each
+  character takes the first unused equal character of the first within
+  `floor(max(|a|, |b|) / 2) - 1` positions (0 at minimum); transpositions are
+  `floor(out-of-order matches / 2)`. Before, two independent greedy passes were
+  combined, transpositions were `t / 2.0`, and two one-character strings equal only
+  after case folding scored 0. Results differ for strings with repeated characters
+  and odd out-of-order counts. Oracle: a brute-force reference in the tests and
+  rapidfuzz-cpp (agreement to 1e-12 on a million random pairs).
+- **`Levenshtein` with an insert/delete cost other than 1** seeded its left column
+  with `i + 1` instead of `(i + 1) * cost`, giving wrong distances. Unit costs were
+  unaffected. Oracle: the textbook full-matrix DP.
+
+Other metrics were checked against brute-force oracles and match them. Known and
+unchanged: `Sorensen_Dice` uses the sets of distinct bigrams (not multisets);
+`PhoneticMetric`'s two-argument calls run the inner metric on the raw strings;
+`Levenshtein` with both costs 0 divides 0 by 0.
 
 ## 🤝 Contributing
 
