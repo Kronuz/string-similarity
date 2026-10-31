@@ -69,6 +69,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(string_similarity_correctness PRIVATE string_similarity)
   add_test(NAME string_similarity_correctness COMMAND string_similarity_correctness)
 
+  # Long-input Levenshtein test: the banded, multi-column kernel against a textbook
+  # dynamic program and the frozen previous kernel (test/frozen_levenshtein.h), at
+  # lengths around the word edges and up to 10000.
+  add_executable(string_similarity_levenshtein test/levenshtein_long.cc)
+  target_link_libraries(string_similarity_levenshtein PRIVATE string_similarity)
+  add_test(NAME string_similarity_levenshtein COMMAND string_similarity_levenshtein)
+
   # A runnable tour of the library (not a test): build & run ./build/string_similarity_demo
   add_executable(string_similarity_demo examples/demo.cc)
   target_link_libraries(string_similarity_demo PRIVATE string_similarity)

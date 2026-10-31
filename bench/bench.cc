@@ -27,9 +27,11 @@
 // target (-DSTRING_SIMILARITY_BUILD_BENCH=ON) and is not a dependency of the
 // library. Prints best-of-5 nanoseconds per call. Run it under `quiet strict`.
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <random>
 #include <string>
 #include <string_view>
@@ -39,6 +41,7 @@
 #include "jaro.h"
 #include "jaro_winkler.h"
 #include "../test/legacy_metrics.h"
+#include "../test/frozen_levenshtein.h"
 #include "rapidfuzz/distance.hpp"
 
 using clk = std::chrono::steady_clock;
@@ -60,6 +63,23 @@ static double bench(size_t n, F&& fn) {
 
 static void row(const char* wl, double legacy, double ours, double rf) {
 	std::printf("%-44s legacy %10.1f  new %9.1f  rapidfuzz %9.1f  | new/rapidfuzz %.2fx  legacy/new %.1fx\n", wl, legacy, ours, rf, ours / rf, legacy / ours);
+}
+
+// A long Levenshtein row: the previous full-table block kernel (test/frozen_levenshtein.h),
+// this library and rapidfuzz, each timed for about 30 ms per repeat.
+static void long_row(const char* wl, const std::string& a, const std::string& b) {
+	Levenshtein lev(false);
+	const double want = lev.distance(a, b);
+	if (std::fabs(rapidfuzz::levenshtein_normalized_distance(a, b) - want) > 1e-12 || frozen_main::levenshtein_unit(a, b) != std::size_t(std::lround(want * double(std::max(a.size(), b.size()))))) {
+		std::printf("MISMATCH in %s\n", wl);
+		std::exit(1);
+	}
+	const size_t n = 1 + size_t(0.03 / (std::max(1.0, bench(3, [&](size_t) { return lev.distance(a, b); })) * 1e-9));
+	// The previous kernel behind the same equality check and normalization as the metric.
+	const double main_kernel = bench(n, [&](size_t) { return a == b ? 0.0 : double(frozen_main::levenshtein_unit(a, b)) / double(std::max(a.size(), b.size())); });
+	const double ours = bench(n, [&](size_t) { return lev.distance(a, b); });
+	const double rf = bench(n, [&](size_t) { return rapidfuzz::levenshtein_normalized_distance(a, b); });
+	std::printf("%-44s main %10.1f  new %9.1f  rapidfuzz %9.1f  | new/rapidfuzz %.2fx  main/new %.1fx\n", wl, main_kernel, ours, rf, ours / rf, main_kernel / ours);
 }
 
 int main() {
@@ -118,6 +138,35 @@ int main() {
 	row("Levenshtein 300 chars, 4 letters", bench(500, [&](size_t) { return olev.distance(L1, L2); }), bench(5000, [&](size_t) { return lev.distance(L1, L2); }), bench(5000, [&](size_t) { return rapidfuzz::levenshtein_normalized_distance(L1, L2); }));
 	row("Levenshtein 3000 chars, 4 letters", bench(5, [&](size_t) { return olev.distance(L3, L4); }), bench(50, [&](size_t) { return lev.distance(L3, L4); }), bench(50, [&](size_t) { return rapidfuzz::levenshtein_normalized_distance(L3, L4); }));
 	row("Levenshtein 3000 chars, ~1% edits", bench(5, [&](size_t) { return olev.distance(L5, L6); }), bench(50, [&](size_t) { return lev.distance(L5, L6); }), bench(50, [&](size_t) { return rapidfuzz::levenshtein_normalized_distance(L5, L6); }));
+
+	// Long strings against the previous full-table kernel ("main") and rapidfuzz.
+	auto edit = [&](std::string s, size_t edits, unsigned alpha) {  // random substitutions, insertions and deletions
+		for (size_t k = 0; k < edits; ++k) {
+			const char c = char('a' + g() % alpha);
+			switch (g() % 3) {
+				case 0: s[g() % s.size()] = c; break;
+				case 1: s.insert(s.begin() + g() % (s.size() + 1), c); break;
+				default: s.erase(s.begin() + g() % s.size()); break;
+			}
+		}
+		return s;
+	};
+	std::printf("-- long Levenshtein (ns per call), previous kernel vs this library vs rapidfuzz\n");
+	long_row("Levenshtein 300 chars, 4 letters", L1, L2);
+	long_row("Levenshtein 1000 chars, 4 letters", mk(1000, 4), mk(1000, 4));
+	long_row("Levenshtein 3000 chars, 4 letters", L3, L4);
+	long_row("Levenshtein 3000 chars, 26 letters", L5, mk(3000, 26));
+	long_row("Levenshtein 3000 chars, ~1% substitutions", L5, L6);
+	long_row("Levenshtein 3000 chars, ~1% edits (indels too)", L5, edit(L5, 30, 26));
+	long_row("Levenshtein 3000 chars, ~5% edits, 4 letters", L3, edit(L3, 150, 4));
+	long_row("Levenshtein 3000 chars, ~10% edits, 4 letters", L3, edit(L3, 300, 4));
+	long_row("Levenshtein 3000 vs 3100 chars, 4 letters", L3, mk(3100, 4));
+	{
+		const std::string x = mk(10000, 26);
+		long_row("Levenshtein 10000 chars, 26 letters", x, mk(10000, 26));
+		long_row("Levenshtein 10000 chars, ~1% edits", x, edit(x, 100, 26));
+	}
+	std::printf("-- Jaro\n");
 
 	row("Jaro random words", bench(N, sim_pair(ojaro, rnd)), bench(N, sim_pair(jaro, rnd)), bench(N, rf_jaro(rnd)));
 	row("Jaro_Winkler random words", bench(N, sim_pair(ojw, rnd)), bench(N, sim_pair(jw, rnd)), bench(N, rf_jw(rnd)));
