@@ -9,7 +9,7 @@ easy to fall into.
 
 ```
 basic_string_metric.h        CRTP base StringMetric<Impl> + the Counter helper. The shared surface. Header.
-bitparallel.h                Internal bit-parallel kernels (Myers/Hyyro edit distance), mask tables, on-the-fly case folding.
+bitparallel.h                Internal bit-parallel kernels (Myers/Hyyro edit distance, banded and several columns per pass), mask tables (`PeqWord` for one word, `Peq` for more and for Jaro), on-the-fly case folding.
 levenshtein.h                Edit distance, normalized by the longer length.
 jaro.h                       Jaro similarity.
 jaro_winkler.h               Jaro with a shared-prefix boost; uses `Jaro::jaro`.
@@ -21,10 +21,11 @@ phonetic_metric.h             PhoneticMetric<Encoder, Metric>: encode phonetical
 test/test.cc                 Runnable smoke test: asserts known values for every metric.
 test/correctness.cc          Every metric against the textbook oracles in test/oracle.h.
 test/differential.cc         Bit-for-bit comparison of Levenshtein/Jaro/Jaro_Winkler against test/legacy_metrics.h (frozen pre-bit-parallel code; never edit it).
+test/levenshtein_long.cc     The banded Levenshtein kernel at lengths 63..10000 against a textbook DP, test/frozen_levenshtein.h (the previous full-table kernel; never edit it) and a direct drive of the band.
 test/rapidfuzz_check.cc      Jaro/Jaro_Winkler against rapidfuzz-cpp (bench option only).
 bench/bench.cc               Benchmark vs legacy and rapidfuzz-cpp (optional CMake target; comparator fetched only there).
 examples/demo.cc             A runnable tour (not a test).
-CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex; CTest tests `string_similarity`, `_differential`, `_correctness`.
+CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex; CTest tests `string_similarity`, `_differential`, `_correctness`, `_levenshtein`.
 LICENSE                      MIT, Copyright (c) 2026 Germán Méndez Bravo and (c) 2015-2020 Dubalu LLC.
 CHANGELOG.md                 Behavior and performance changes, dated.
 README.md                    What it is, install, quick start.
@@ -45,9 +46,9 @@ cmake -B build && cmake --build build && ctest --test-dir build
 
 The first configure fetches `strings` and `soundex` over the network
 (FetchContent, `GIT_TAG main`). The smoke test prints
-`all string-metrics tests passed (N checks)` and exits 0. CTest runs three
-targets: `string_similarity` (`test/test.cc`), `string_similarity_differential`
-and `string_similarity_correctness`. The tests and
+`all string-metrics tests passed (N checks)` and exits 0. CTest runs four
+targets: `string_similarity` (`test/test.cc`), `string_similarity_differential`,
+`string_similarity_correctness` and `string_similarity_levenshtein`. The tests and
 demo are only added when this repo is the top-level project (CMakeLists.txt), so
 consumers vendoring it via `FetchContent` won't build them.
 
@@ -98,6 +99,8 @@ track both at `GIT_TAG main`, like the rest of the family.
   base can call its private kernels. Keep the friend declaration when adding a
   metric.
 - **Optimized kernels fold case themselves.** `Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h` except for the input classes listed at the top of `test/differential.cc` (Levenshtein insert/delete cost != 1 or both costs 0, Jaro matching, Jaro_Winkler), where the legacy result is a known bug (see `CHANGELOG.md`); everywhere else the test enforces equality. `test/correctness.cc` checks every metric against the textbook oracles in `test/oracle.h`; `test/rapidfuzz_check.cc` (bench option) checks Jaro/Jaro_Winkler against rapidfuzz.
+- **The banded kernel's result is exact only within its bound.** `levenshtein_band(..., k, exact)` returns the distance when it is at most `k` (or when `exact` is set) and an upper bound above `k` otherwise; `levenshtein_unit` relies on that to retry with `k = result`. Pessimistic starts (a block entering below the band begins with every vertical delta +1, the first active block's incoming delta is +1) are what keep the table an over-estimate; do not "improve" them to anything below the true value. Do not index blocks outside `[first, last]`, and keep `score` tied to the last active block.
+- **`levenshtein_unit`'s one-word path stays small.** The multi-word path is `STRSIM_NOINLINE` (`levenshtein_blocks`): inlined, it made a 16-32 character near-identical word about 5% slower on arm64. `kColumns` is 3 on arm64 and 2 elsewhere (measured: on M4 two is 7-8% slower than one at 288-384 characters, three is faster everywhere; on x86-64 three and four are slower than two); initialize per-column arrays element by element (a loop became a `memset_pattern16` call per group).
 - **The dispatch is fixed at the StringMetric<...> layer.** A derived
   metric must not rely on the base's CRTP dispatch reaching its code: `Jaro_Winkler`
   names itself in `StringMetric<...>`, and `PhoneticMetric` (derived from its inner

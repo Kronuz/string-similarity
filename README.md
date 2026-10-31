@@ -94,25 +94,40 @@ cmake -B build && cmake --build build && ctest --test-dir build
 
 - **Levenshtein, default costs (1, 1).** The common prefix and suffix are
   trimmed, then Myers' bit-vector algorithm advances 64 cells of the table per
-  word operation (one word up to 64 characters, Hyyrö's block form beyond). Other
+  word operation: one word up to 64 characters, Hyyrö's block form beyond.
+  Past one word the kernel advances two text columns per pass over the blocks
+  (three on arm64), so the carry chains of the columns overlap. For more than 448
+  characters (8 words or more) it runs inside an Ukkonen band first: an
+  alignment of cost at most `k` stays within `k` diagonals of the
+  corner-to-corner diagonal, so only the blocks that band touches are computed.
+  The public API has no distance bound, so the first band is 63 wider than the
+  length difference; when the distance is larger, the first result (an upper
+  bound) sizes the second and final run. Results are exact either way. Other
   costs use the weighted dynamic program, kept on the stack.
 - **Jaro.** One pass over the second string. The first unused equal character of
   the first string inside the window is a mask operation
   (`peq[c] & ~used & window`, lowest set bit).
-- **No allocation per call.** Strings of up to 64 characters keep their character
-  masks on the stack; longer ones use thread-local scratch that is reused.
+- **No allocation per call.** Strings of up to 64 characters build their character
+  masks inline on the stack; longer ones use thread-local scratch that is reused.
 - **Case folding on the fly.** With `icase`, the metric folds into a stack buffer
   (heap past 512 characters) inside the kernel.
 
-Apple Silicon, ns per call; rapidfuzz computes the standard Jaro:
+Times per call, `icase=false`, best of five; rapidfuzz computes the standard Jaro.
+"Edits" are random substitutions, insertions and deletions.
 
-| workload | string-similarity | [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) |
-|---|---|---|
-| Levenshtein, random words | 39 | 67-75 |
-| Levenshtein, 300 chars | 2.3 us | 3.2 us |
-| Levenshtein, 3000 chars | 250 us | 230-250 us |
-| Jaro, random words | 77 | 66 |
-| Jaro, 3000 chars | 26 us | 22 us |
+| workload | Apple M4 Pro | | Intel i9-9980HK | |
+|---|---|---|---|---|
+| | string-similarity | [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) | string-similarity | rapidfuzz-cpp |
+| Levenshtein, random words | 34 ns | 73 ns | 61 ns | 93 ns |
+| Levenshtein, 300 chars, 4 letters | 2.2 us | 3.2 us | 4.1 us | 6.1 us |
+| Levenshtein, 3000 chars, 4 letters | 95 us | 249 us | 172 us | 318 us |
+| Levenshtein, 3000 chars, 26 letters | 132 us | 236 us | 239 us | 307 us |
+| Levenshtein, 3000 chars, 1% edits | 13.6 us | 236 us | 24.8 us | 301 us |
+| Levenshtein, 3000 chars, 10% edits | 36 us | 237 us | 67 us | 309 us |
+| Levenshtein, 10000 chars, 26 letters | 1.34 ms | 2.62 ms | 2.38 ms | 3.15 ms |
+| Levenshtein, 10000 chars, 1% edits | 90 us | 2.58 ms | 165 us | 3.16 ms |
+| Jaro, random words | 50 ns | 66 ns | 86 ns | 92 ns |
+| Jaro, 3000 chars | 14.9 us | 21.4 us | 51 us | 66 us |
 
 ```sh
 cmake -B build -DSTRING_SIMILARITY_BUILD_BENCH=ON -DCMAKE_BUILD_TYPE=Release

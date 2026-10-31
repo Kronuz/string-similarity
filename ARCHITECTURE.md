@@ -67,6 +67,58 @@ plus their one-argument forms, and `_name` / `_description`.
   defer to the inner metric over the codes; its constructor stores the encoded
   form as the bound `_str`. `name()` reports the encoder's name.
 
+## The Levenshtein kernel
+
+`levenshtein_unit` in `bitparallel.h` computes the unit-cost distance. It trims the
+common prefix and suffix, makes the shorter string the pattern, and picks one of
+three kernels by the pattern's length `m` (in 64-bit words, `nb`):
+
+- **`m <= 64`**: Myers' bit-vector algorithm, one word, one text character per step.
+  The pattern's character masks are built inline on the stack (`PeqWord`: a 256 byte
+  index of at most 64 row numbers and 65 mask words; only the index is cleared).
+- **`nb` below `kBandMinBlocks` (8)**: Hyyrö's block form over the whole table
+  (`levenshtein_full`).
+- **`nb >= 8`** (more than 448 characters): the same blocks inside an Ukkonen band
+  (`levenshtein_band`), run up to twice, unless the length difference makes the band
+  touch more than half of the pattern's rows anyway (then the whole table).
+
+*Columns per pass.* A text column's blocks form a carry chain (the horizontal delta
+leaving block `w` enters block `w + 1`), so a one-column pass runs at the chain's
+latency. `lev_pass` advances `kColumns` columns per visit of each block: the
+columns are independent chains, the block's vertical deltas are loaded and stored
+once, and the processor overlaps them (a block costs 1.0 ns instead of 1.85 on
+Apple M4, 1.9 instead of 2.3 on an Intel i9). `kColumns` is 3 on arm64 (31
+registers; two columns are 7-8% slower than one at 288-384 characters on M4, three
+are faster at every length on M1 and M4) and 2 elsewhere (x86-64's 16 registers:
+three and four are slower).
+
+*The band.* Any alignment of cost at most `k` stays on the diagonals
+`j - i` in `[-s, (n - m) + s]` with `s = (k - (n - m)) / 2`: touching diagonal `d`
+costs at least `|d| + |d - (n - m)|` insertions and deletions. For each group of
+columns the kernel advances only the blocks of 64 rows that band touches.
+A block entering below the band starts from "every vertical delta is +1" (a column
+that grows by one per row) and the first active block's incoming horizontal delta is
++1; both are over-estimates, so the computed table is never below the true one, and
+it equals the true one on every cell of an alignment inside the band. A result at
+most `k` is therefore the exact distance, and a larger one is an upper bound.
+`levenshtein_band` also reports `exact` when the band covered the whole table.
+
+*No bound in the API.* The first run uses `k0 = (n - m) + 63`. When its result `r`
+is not within `k0`, `r` (an upper bound of the distance) is the `k` of the second
+run, which is therefore exact. Near-identical strings finish in the first run
+(cost proportional to the band, not the table); unrelated ones pay one narrow run
+(about 5% of the table at 3000 characters) and then a band of `r`.
+
+*Score tracking.* The distance is the value at the pattern's last row of the last
+column. The kernel keeps the value at the last row of the last active block, adds
+the horizontal delta at that row every column, and adds the block's row count when a
+new block activates.
+
+`test/levenshtein_long.cc` checks the kernel against a textbook dynamic program and
+the frozen previous kernel (`test/frozen_levenshtein.h`), drives the band with every
+bound, and runs every first-band width; its mutants (narrower band, wrong start
+value, wrong score rows, early accept) each fail it.
+
 ## The dispatch subtlety
 
 The CRTP `Impl` is fixed at the layer that names `StringMetric<...>`, and the base
