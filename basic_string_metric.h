@@ -60,10 +60,16 @@ public:
 			return 0.0;
 		}
 
-		return static_cast<const Impl*>(this)->_distance(
-			_icase ? strings::upper(std::forward<T>(str1)) : std::forward<T>(str1),
-			_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
-		);
+		if constexpr (requires(const Impl& impl, std::string_view sv) { impl._icase_distance(sv, sv, true, true); }) {
+			return static_cast<const Impl*>(this)->_icase_distance(
+				std::string_view(str1), std::string_view(str2), _icase, _icase
+			);
+		} else {
+			return static_cast<const Impl*>(this)->_distance(
+				_icase ? strings::upper(std::forward<T>(str1)) : std::forward<T>(str1),
+				_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
+			);
+		}
 	}
 
 	template <typename T>
@@ -77,9 +83,16 @@ public:
 			return 0.0;
 		}
 
-		return static_cast<const Impl*>(this)->_distance(
-			_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
-		);
+		if constexpr (requires(const Impl& impl, std::string_view sv) { impl._icase_distance(sv, sv, true, true); }) {
+			// _str was folded when it was stored; only str2 needs folding.
+			return static_cast<const Impl*>(this)->_icase_distance(
+				std::string_view(_str), std::string_view(str2), false, _icase
+			);
+		} else {
+			return static_cast<const Impl*>(this)->_distance(
+				_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
+			);
+		}
 	}
 
 	template <typename T>
@@ -93,10 +106,16 @@ public:
 			return 1.0;
 		}
 
-		return static_cast<const Impl*>(this)->_similarity(
-			_icase ? strings::upper(std::forward<T>(str1)) : std::forward<T>(str1),
-			_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
-		);
+		if constexpr (requires(const Impl& impl, std::string_view sv) { impl._icase_similarity(sv, sv, true, true); }) {
+			return static_cast<const Impl*>(this)->_icase_similarity(
+				std::string_view(str1), std::string_view(str2), _icase, _icase
+			);
+		} else {
+			return static_cast<const Impl*>(this)->_similarity(
+				_icase ? strings::upper(std::forward<T>(str1)) : std::forward<T>(str1),
+				_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
+			);
+		}
 	}
 
 	template <typename T>
@@ -110,9 +129,16 @@ public:
 			return 1.0;
 		}
 
-		return static_cast<const Impl*>(this)->_similarity(
-			_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
-		);
+		if constexpr (requires(const Impl& impl, std::string_view sv) { impl._icase_similarity(sv, sv, true, true); }) {
+			// _str was folded when it was stored; only str2 needs folding.
+			return static_cast<const Impl*>(this)->_icase_similarity(
+				std::string_view(_str), std::string_view(str2), false, _icase
+			);
+		} else {
+			return static_cast<const Impl*>(this)->_similarity(
+				_icase ? strings::upper(std::forward<T>(str2)) : std::forward<T>(str2)
+			);
+		}
 	}
 
 	std::string_view name() const noexcept {

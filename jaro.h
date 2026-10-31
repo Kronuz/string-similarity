@@ -25,11 +25,12 @@
 
 #include <algorithm>                              // for std::min, std::max
 #include <cstddef>                                // for std::size_t
+#include <string>                                 // for std::string
 #include <string_view>                            // for std::string_view
 #include <utility>                                // for std::forward
-#include <vector>                                 // for std::vector
 
 #include "basic_string_metric.h"
+#include "bitparallel.h"
 
 
 /*
@@ -40,27 +41,71 @@
 class Jaro : public StringMetric<Jaro> {
 	friend class StringMetric<Jaro>;
 
-	std::vector<char> get_common_characters(std::string_view str1, std::string_view str2, size_t max_separation) const {
+	// Greedy matching of str2's characters into str1, exactly as the scalar scan
+	// did it: for the i-th character of str2, take the first not yet used equal
+	// character of str1 inside [i - max_separation, i + max_separation]. The
+	// candidates are found with bit masks: peq's row for the character, minus the
+	// used bits, restricted to the window, lowest set bit. Matched characters are
+	// appended to `out` in str2 order; returns how many matched.
+	template <int Slot>
+	static size_t get_common_characters(const strsim_detail::Peq<Slot>& peq, strsim_detail::word_t* used, std::string_view str1, std::string_view str2, size_t max_separation, char* out) {
+		constexpr size_t W = strsim_detail::kWordBits;
 		const auto l_str1 = str1.size();
-		std::vector<char> common_chars;
-		common_chars.reserve(l_str1);
-		std::vector<bool> proc_str1(l_str1, false);
+		const size_t nb = peq.blocks();
+		for (size_t w = 0; w < nb; ++w) {
+			used[w] = 0;
+		}
 
-		// Calculate matching characters.
+		size_t count = 0;
 		size_t i = 0;
+
+		if (nb == 1) {
+			// One word: the used set lives in a register and the match is branch free.
+			strsim_detail::word_t u = 0;
+			for (const auto& c : str2) {
+				const size_t start = std::max((int)(i - max_separation), 0);
+				const size_t end = std::min(i + max_separation + 1, l_str1);
+				if (start < end) {
+					const strsim_detail::word_t window = (~strsim_detail::word_t(0) << start) & (~strsim_detail::word_t(0) >> (W - end));
+					const strsim_detail::word_t m = peq.row(static_cast<unsigned char>(c))[0] & ~u & window;
+					u |= m & (~m + 1);  // lowest set bit, if any
+					out[count] = c;
+					count += (m != 0);
+				}
+				++i;
+			}
+			return count;
+		}
+
+		size_t lo = 0;  // words below lo are completely used
 		for (const auto& c : str2) {
-			size_t start = std::max((int)(i - max_separation), 0);
-			for (auto end = std::min(i + max_separation + 1, l_str1); start < end; ++start) {
-				if (c == str1[start] && !proc_str1[start]) {
-					proc_str1[start] = true;
-					common_chars.push_back(c);
-					break;
+			// The same (unsigned, possibly wrapping) arithmetic as the scalar loops.
+			const size_t start = std::max((int)(i - max_separation), 0);
+			const size_t end = std::min(i + max_separation + 1, l_str1);
+			if (start < end) {
+				const auto* row = peq.row(static_cast<unsigned char>(c));
+				while (lo < nb && ~used[lo] == 0) {
+					++lo;
+				}
+				const size_t first = std::max(start / W, lo), lastw = (end - 1) / W;
+				for (size_t w = first; w <= lastw; ++w) {
+					strsim_detail::word_t m = row[w] & ~used[w];
+					if (w == start / W) {
+						m &= ~strsim_detail::word_t(0) << (start % W);
+					}
+					if (w == lastw && end % W != 0) {
+						m &= (strsim_detail::word_t(1) << (end % W)) - 1;
+					}
+					if (m) {
+						used[w] |= m & (~m + 1);  // lowest set bit
+						out[count++] = c;
+						break;
+					}
 				}
 			}
 			++i;
 		}
-
-		return common_chars;
+		return count;
 	}
 
 protected:
@@ -69,10 +114,28 @@ protected:
 
 		const auto max_separation = std::max((size_t)0, std::max(l_str1, l_str2) / 2 - 1);
 
-		const auto common_str1 = get_common_characters(str1, str2, max_separation);
-		const auto common_str2 = get_common_characters(str2, str1, max_separation);
+		constexpr size_t kStack = 512;
+		char stack_buf[2 * kStack];
+		std::string heap_buf;
+		char* common_str1 = stack_buf;
+		char* common_str2 = stack_buf + kStack;
+		if (l_str1 > kStack || l_str2 > kStack) {
+			heap_buf.resize(l_str1 + l_str2);
+			common_str1 = heap_buf.data();
+			common_str2 = common_str1 + l_str2;
+		}
 
-		auto m1 = common_str1.size(), m2 = common_str2.size();
+		const auto* p1 = reinterpret_cast<const unsigned char*>(str1.data());
+		const auto* p2 = reinterpret_cast<const unsigned char*>(str2.data());
+		const size_t nb1 = (l_str1 + 63) / 64, nb2 = (l_str2 + 63) / 64;
+		strsim_detail::Peq<0> peq1(p1, l_str1, nb1);
+		strsim_detail::Peq<1> peq2(p2, l_str2, nb2);
+
+		// common_str1: str2's characters matched into str1, in str2 order.
+		// common_str2: str1's characters matched into str2, in str1 order.
+		auto m1 = get_common_characters(peq1, peq1.extra(), str1, str2, max_separation, common_str1);
+		auto m2 = get_common_characters(peq2, peq2.extra(), str2, str1, max_separation, common_str2);
+
 		if (!m1 || !m2) {
 			return 0.0;
 		}
@@ -80,21 +143,27 @@ protected:
 		// Calculate character transpositions.
 		size_t t = 0;
 		if (m1 < m2) {
-			auto it = common_str2.begin();
-			for (const auto& c : common_str1) {
-				t += *it != c;
-				++it;
+			for (size_t k = 0; k < m1; ++k) {
+				t += common_str2[k] != common_str1[k];
 			}
 		} else {
 			m1 = m2;
-			auto it = common_str1.begin();
-			for (const auto& c : common_str2) {
-				t += *it != c;
-				++it;
+			for (size_t k = 0; k < m2; ++k) {
+				t += common_str1[k] != common_str2[k];
 			}
 		}
 
 		return (((double)m1 / l_str1) + ((double)m1 / l_str2) + ((m1 - t / 2.0) / m1)) / 3.0;
+	}
+
+	// Case folding happens here, on the fly, rather than in the base class.
+	double _icase_similarity(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
+		strsim_detail::Folded f1(str1, fold1), f2(str2, fold2);
+		return _similarity(f1.view(), f2.view());
+	}
+
+	double _icase_distance(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
+		return 1.0 - _icase_similarity(str1, str2, fold1, fold2);
 	}
 
 	double _similarity(std::string_view str2) const {

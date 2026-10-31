@@ -30,6 +30,7 @@
 #include <vector>                                 // for std::vector
 
 #include "basic_string_metric.h"
+#include "bitparallel.h"
 
 
 /*
@@ -48,9 +49,20 @@ protected:
 private:
 	friend class StringMetric<Levenshtein>;
 
-	double _distance(std::string_view str1, std::string_view str2) const {
+	// Weighted dynamic programming, O(len1 * len2). Used when the costs are not a
+	// plain unit-cost edit distance (substitution != insert/delete, or zero
+	// costs). Keeps the two columns on the stack for short strings.
+	size_t _raw_weighted(std::string_view str1, std::string_view str2) const {
 		const auto len1 = str1.size(), len2 = str2.size();
-		std::vector<size_t> col(len2 + 1), prev_col(len2 + 1);
+		constexpr size_t kStack = 256;
+		size_t stack_buf[2 * (kStack + 1)];
+		std::vector<size_t> heap_buf;
+		size_t* col = stack_buf;
+		if (len2 > kStack) {
+			heap_buf.resize(2 * (len2 + 1));
+			col = heap_buf.data();
+		}
+		size_t* prev_col = col + (len2 + 1);
 
 		for (size_t i = 0; i <= len2; ++i) {
 			prev_col[i] = i * _ins_del_cost;
@@ -61,10 +73,35 @@ private:
 			for (size_t j = 0; j < len2; ++j) {
 				col[j + 1] = std::min({ prev_col[j + 1] + _ins_del_cost, col[j] + _ins_del_cost, prev_col[j] + (str1[i] == str2[j] ? 0 : _subst_cost) });
 			}
-			col.swap(prev_col);
+			std::swap(col, prev_col);
 		}
 
-		return (double)prev_col[len2] / (_maxCost * std::max(len1, len2));
+		return prev_col[len2];
+	}
+
+	// Both operands are already case-folded (if folding applies).
+	double _distance(std::string_view str1, std::string_view str2) const {
+		const auto len1 = str1.size(), len2 = str2.size();
+		size_t raw;
+		if (_subst_cost == 1 && _ins_del_cost == 1) {
+			// Plain unit costs (the default): bit-parallel edit distance. Other costs
+			// keep the original dynamic program, which seeds its left column with
+			// i + 1 whatever the insert/delete cost is (not a scaled edit distance).
+			raw = strsim_detail::levenshtein_unit(str1, str2);
+		} else {
+			raw = _raw_weighted(str1, str2);
+		}
+		return (double)raw / (_maxCost * std::max(len1, len2));
+	}
+
+	// Case folding happens here, on the fly, rather than in the base class.
+	double _icase_distance(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
+		strsim_detail::Folded f1(str1, fold1), f2(str2, fold2);
+		return _distance(f1.view(), f2.view());
+	}
+
+	double _icase_similarity(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
+		return 1.0 - _icase_distance(str1, str2, fold1, fold2);
 	}
 
 	double _distance(std::string_view str2) const {
