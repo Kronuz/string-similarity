@@ -88,6 +88,11 @@ cmake -B build && cmake --build build && ctest --test-dir build
 ./build/string_similarity_demo
 ```
 
+The tests check every metric against textbook oracles, the frozen earlier
+implementations (bit for bit, except in the input classes the changelog lists) and
+[rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp), which the configure step
+fetches for the cross-check; `-DSTRING_SIMILARITY_RAPIDFUZZ_CHECK=OFF` skips it.
+
 ## ⚡ Performance
 
 `Levenshtein` and `Jaro` (and so `Jaro_Winkler`) use bit-parallel kernels.

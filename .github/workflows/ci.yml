@@ -5,10 +5,13 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: '23 7 * * *'  # nightly: flaky timing, and drift in libraries tracked at main
+    - cron: '23 7 * * *'  # nightly: catches timing-dependent failures
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   ci:
     uses: Kronuz/cpp-libraries/.github/workflows/cmake.yml@main
+    with:
+      # The sanitizer build stays Debug; -O1 keeps the long randomized tests within the job's limit.
+      asan_cxx_flags: -O1

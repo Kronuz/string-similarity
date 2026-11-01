@@ -84,6 +84,7 @@ public:
 		: Metric(false) { }
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, PhoneticMetric>)
 	PhoneticMetric(T&& str, bool = false) :
 		Metric(false),
 		_soundex(str) {

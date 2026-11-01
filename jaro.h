@@ -23,8 +23,8 @@
 
 #pragma once
 
-#include <algorithm>
-#include <bit>                                    // for std::countr_zero                              // for std::min, std::max
+#include <algorithm>                              // for std::min, std::max
+#include <bit>                                    // for std::countr_zero
 #include <cstddef>                                // for std::size_t
 #include <string>                                 // for std::string
 #include <string_view>                            // for std::string_view
@@ -193,6 +193,7 @@ public:
 		: StringMetric<Jaro>(icase) { }
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, Jaro>)
 	Jaro(T&& str, bool icase=true)
 		: StringMetric<Jaro>(std::forward<T>(str), icase) { }
 };

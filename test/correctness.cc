@@ -25,7 +25,9 @@
 // (test/oracle.h: textbook definitions). Exhaustive over small alphabets and
 // lengths, plus random long strings that cross the 64-bit word boundaries.
 // Named checks (so a reverted fix fails a named test):
-//   levenshtein_weighted, jaro, jaro_winkler, lcs, jaccard, dice, icase_len1, levenshtein_zero, phonetic.
+//   levenshtein_weighted, jaro, jaro_winkler, lcs, jaccard, dice, icase_len1, levenshtein_zero,
+//   phonetic (and phonetic_jaro, phonetic_jaro_winkler, phonetic_dice: every inner metric, both forms),
+//   icase_<metric> (icase=true equals fold-then-compare), icase_dice, jw_boundary (jd == bt).
 
 #include <cmath>
 #include <cstdio>
@@ -79,6 +81,80 @@ static std::string rnd(size_t len, unsigned alpha) {
 	std::string s(len, 'a');
 	for (auto& c : s) c = char('a' + rng() % alpha);
 	return s;
+}
+
+// A random string of any bytes drawn from `alpha` consecutive byte values starting at `base`.
+static std::string rnd_bytes(size_t len, unsigned alpha, unsigned base) {
+	std::string s(len, '\0');
+	for (auto& c : s) c = char(base + rng() % alpha);
+	return s;
+}
+
+// The library's convention around a textbook value: an empty operand scores 0 and
+// identical operands 1, before any metric runs.
+static double with_base_cases(const std::string& a, const std::string& b, double textbook) {
+	if (a.empty() || b.empty()) return 0.0;
+	if (a == b) return 1.0;
+	return textbook;
+}
+
+// PhoneticMetric<SoundexEnglish, Inner>: the code of each operand, then the inner
+// metric over the codes (`want` is the oracle's similarity of two different codes).
+template <typename Inner, typename Want>
+static void phonetic_check(const char* test, Want want) {
+	SoundexEnglish enc;
+	PhoneticMetric<SoundexEnglish, Inner> pm;
+	const char* words[] = {"Robert", "Rupert", "Rubin", "Ashcraft", "Tymczak", "Pfister", "Honeyman", "Lee", "x", "Washington", "Wasington"};
+	for (const char* x : words) {
+		for (const char* y : words) {
+			const std::string a(x), b(y), ea = enc.encode(a), eb = enc.encode(b);
+			const double sim = with_base_cases(ea, eb, want(ea, eb));
+			expect(pm.similarity(a, b), sim, test, a, b);
+			expect(pm.distance(a, b), 1.0 - sim, test, a, b);
+			PhoneticMetric<SoundexEnglish, Inner> bound(a);
+			expect(bound.similarity(b), sim, test, a, b);
+			expect(bound.distance(b), 1.0 - sim, test, a, b);
+		}
+	}
+}
+
+// icase=true means: fold both operands to upper case, then compare case-sensitively.
+// The oracle is that equivalence itself, over every string up to length 4 on {a, A, b},
+// plus high bytes, for the two-argument and the bound forms.
+template <typename Metric>
+static void icase_equivalence(const char* test) {
+	std::vector<std::string> strs = all_strings("aAb", 4);
+	strs.push_back("\xe9");
+	strs.push_back("\xc9");
+	strs.push_back("a\xe9");
+	strs.push_back("A\xc9");
+	Metric ci(true), cs(false);
+	for (const auto& a : strs) {
+		const std::string fa = strings::upper(a);
+		Metric cib(a, true), csb(fa, false);
+		for (const auto& b : strs) {
+			const std::string fb = strings::upper(b);
+			expect(ci.similarity(a, b), cs.similarity(fa, fb), test, a, b);
+			expect(ci.distance(a, b), cs.distance(fa, fb), test, a, b);
+			expect(cib.similarity(b), csb.similarity(fb), test, a, b);
+			expect(cib.distance(b), csb.distance(fb), test, a, b);
+		}
+	}
+}
+
+// Jaro-Winkler boosts when jd > bt: nothing at jd == bt, and the boost one ulp below.
+static void jaro_winkler_boundary(const std::string& a, const std::string& b) {
+	const double jd = Jaro::jaro(a, b);
+	expect(jd, oracle::jaro(a, b).value, "jw_boundary", a, b);
+	for (double bt : {jd, std::nextafter(jd, 0.0), std::nextafter(jd, 1.0)}) {
+		if (bt < 0.0 || bt > 1.0) continue;
+		const double want = oracle::jaro_winkler(a, b, 0.1, bt);
+		Jaro_Winkler w(false, 0.1, bt), wb(a, false, 0.1, bt);
+		expect(w.similarity(a, b), want, "jw_boundary", a, b);
+		expect(w.distance(a, b), 1.0 - want, "jw_boundary", a, b);
+		expect(wb.similarity(b), want, "jw_boundary", a, b);
+		expect(wb.distance(b), 1.0 - want, "jw_boundary", a, b);
+	}
 }
 
 int main() {
@@ -165,23 +241,18 @@ int main() {
 		Levenshtein zb(std::string("abc"), false, 0, 0);
 		expect(zb.distance(std::string("xy")), 0.0, "levenshtein_zero", "abc", "xy");
 	}
-	// PhoneticMetric: encode both operands, then compare the codes.
+	// PhoneticMetric: encode both operands, then compare the codes with the inner
+	// metric, for every inner metric, in the two-argument and the bound forms.
 	{
-		SoundexEnglish enc;
+		phonetic_check<Levenshtein>("phonetic", [](const std::string& a, const std::string& b) { return 1.0 - oracle::lev_distance(a, b, 1, 1); });
+		phonetic_check<Jaro>("phonetic_jaro", [](const std::string& a, const std::string& b) { return oracle::jaro(a, b).value; });
+		phonetic_check<Jaro_Winkler>("phonetic_jaro_winkler", [](const std::string& a, const std::string& b) { return oracle::jaro_winkler(a, b); });
+		phonetic_check<Sorensen_Dice>("phonetic_dice", [](const std::string& a, const std::string& b) { return oracle::dice_multiset(a, b); });
 		PhoneticMetric<SoundexEnglish, Levenshtein> pm;
-		const char* words[] = {"Robert", "Rupert", "Rubin", "Ashcraft", "Tymczak", "Pfister", "Honeyman", "Lee", "x", "Washington", "Wasington"};
-		for (const char* x : words) {
-			for (const char* y : words) {
-				const std::string a(x), b(y), ea = enc.encode(a), eb = enc.encode(b);
-				const double want = ea == eb ? 0.0 : oracle::lev_distance(ea, eb, 1, 1);
-				expect(pm.distance(a, b), want, "phonetic", a, b);
-				expect(pm.similarity(a, b), 1.0 - want, "phonetic", a, b);
-				PhoneticMetric<SoundexEnglish, Levenshtein> bound(a);
-				expect(bound.distance(b), want, "phonetic", a, b);
-				expect(bound.similarity(b), 1.0 - want, "phonetic", a, b);
-			}
-		}
 		expect(pm.similarity(std::string("Robert"), std::string("Rupert")), 1.0, "phonetic", "Robert", "Rupert");
+		// The bound Dice case that used to score 0: R901096 and R90108 share 4 of 11 bigram slots.
+		PhoneticMetric<SoundexEnglish, Sorensen_Dice> pd("Robert");
+		expect(pd.similarity(std::string("Rubin")), 2.0 * 4 / 11, "phonetic_dice", "Robert", "Rubin");
 	}
 
 	// Other algorithms against their oracles (exhaustive {a,b,c} to length 5).
@@ -203,7 +274,98 @@ int main() {
 		}
 	}
 
-	std::printf("%zu checks\n", checks);
+	// Sorensen-Dice over bigram multisets: two-argument and bound forms, similarity and
+	// distance, every string up to length 6 on {a, b, 0xff}, then random strings of
+	// every length that picks a different path (2, 63..65, 129, 300, 3000) over
+	// alphabets from one symbol to all 256 byte values. The calls share one table per
+	// thread: a call that left a count behind would break the next oracle match.
+	{
+		Sorensen_Dice dc(false);
+		auto run = [&](const std::string& a, const std::string& b) {
+			const double want = with_base_cases(a, b, oracle::dice_multiset(a, b));
+			Sorensen_Dice bound(a, false);
+			expect(dc.similarity(a, b), want, "dice", a, b);
+			expect(dc.distance(a, b), 1.0 - want, "dice", a, b);
+			expect(bound.similarity(b), want, "dice", a, b);
+			expect(bound.distance(b), 1.0 - want, "dice", a, b);
+		};
+		const auto strs = all_strings(std::string("ab\xff"), 6);
+		for (const auto& a : strs)
+			for (const auto& b : strs) run(a, b);
+		const size_t lens[] = {2, 3, 5, 16, 63, 64, 65, 129, 300, 1000, 3000};
+		const unsigned alphas[] = {1, 2, 4, 26, 256};
+		for (unsigned alpha : alphas)
+			for (size_t la : lens)
+				for (size_t lb : lens)
+					for (int r = 0; r < 2; ++r) {
+						const auto a = rnd_bytes(la, alpha, alpha == 256 ? 0 : 'a');
+						run(a, rnd_bytes(lb, alpha, alpha == 256 ? 0 : 'a'));
+						auto b = a;
+						for (int e = 0; e < 3; ++e) b[rng() % b.size()] = char(rng());
+						run(a, b);
+					}
+		// One-character strings: identical ones score 1 like any identical pair.
+		expect(Sorensen_Dice(false).similarity(std::string("a"), std::string("a")), 1.0, "dice", "a", "a");
+		expect(Sorensen_Dice(false).similarity(std::string("a"), std::string("b")), 0.0, "dice", "a", "b");
+		expect(Sorensen_Dice(false).similarity(std::string("a"), std::string("ab")), 0.0, "dice", "a", "ab");
+		expect(Sorensen_Dice(true).similarity(std::string("a"), std::string("A")), 1.0, "icase_dice", "a", "A");
+		expect(Sorensen_Dice(true).distance(std::string("a"), std::string("A")), 0.0, "icase_dice", "a", "A");
+		expect(Sorensen_Dice(std::string("a"), true).similarity(std::string("a")), 1.0, "icase_dice", "a", "a");
+		expect(Sorensen_Dice(std::string("a"), true).similarity(std::string("A")), 1.0, "icase_dice", "a", "A");
+	}
+
+	// icase=true is "fold both operands, then compare case-sensitively", for every metric.
+	icase_equivalence<Levenshtein>("icase_levenshtein");
+	icase_equivalence<Jaro>("icase_jaro");
+	icase_equivalence<Jaro_Winkler>("icase_jaro_winkler");
+	icase_equivalence<Sorensen_Dice>("icase_dice");
+	icase_equivalence<LCSubsequence>("icase_lcs");
+	icase_equivalence<LCSubstr>("icase_lcs");
+	icase_equivalence<Jaccard>("icase_jaccard");
+
+	// Jaro-Winkler at the boost threshold, on the pairs with a shared prefix whose Jaro
+	// score is the threshold itself, and on random related pairs.
+	{
+		jaro_winkler_boundary("MARTHA", "MARHTA");
+		jaro_winkler_boundary("DWAYNE", "DUANE");
+		jaro_winkler_boundary("DIXON", "DICKSONX");
+		for (int r = 0; r < 300; ++r) {
+			const unsigned alpha = 2 + rng() % 8;
+			auto a = rnd(5 + rng() % 70, alpha);
+			auto b = a;
+			for (int e = 0; e < 1 + int(rng() % 4); ++e) b[1 + rng() % (b.size() - 1)] = char('a' + rng() % alpha);
+			if (a != b) jaro_winkler_boundary(a, b);
+		}
+	}
+
+	// The sizes where an internal buffer changes hands: the weighted Levenshtein column
+	// (256 on the stack), the case-folding buffer (512) and the Jaro match buffer (512).
+	{
+		for (size_t len = 254; len <= 259; ++len) {
+			for (const auto& c : {std::pair<size_t, size_t>{2, 1}, {1, 3}}) {
+				const auto a = rnd(len, 4), b = rnd(len + rng() % 3, 4);
+				for (const auto& p : {std::pair<const std::string&, const std::string&>{a, b}, {b, a}}) {
+					expect(Levenshtein(false, c.first, c.second).distance(p.first, p.second), oracle::lev_distance(p.first, p.second, c.first, c.second), "levenshtein_weighted", p.first, p.second);
+				}
+			}
+		}
+		for (size_t len = 509; len <= 515; ++len) {
+			std::string a = rnd(len, 3), b = a;
+			for (int e = 0; e < 6; ++e) b[rng() % b.size()] = char('a' + rng() % 3);
+			for (auto& ch : a) if (rng() % 2) ch = char(ch - 32);
+			for (auto& ch : b) if (rng() % 2) ch = char(ch - 32);
+			const std::string fa = strings::upper(a), fb = strings::upper(b);
+			for (const auto& p : {std::pair<const std::string&, const std::string&>{a, b}, {b, a}}) {
+				const std::string &x = p.first, &y = p.second, fx = strings::upper(x), fy = strings::upper(y);
+				expect(Jaro(true).similarity(x, y), with_base_cases(x, y, oracle::jaro(fx, fy).value), "jaro", x, y);
+				expect(Jaro_Winkler(true).similarity(x, y), with_base_cases(x, y, oracle::jaro_winkler(fx, fy)), "jaro_winkler", x, y);
+				expect(Jaro(false).similarity(fx, fy), with_base_cases(fx, fy, oracle::jaro(fx, fy).value), "jaro", fx, fy);
+				expect(Sorensen_Dice(true).similarity(x, y), with_base_cases(x, y, oracle::dice_multiset(fx, fy)), "dice", x, y);
+				expect(Levenshtein(true).distance(x, y), oracle::lev_distance(fx, fy, 1, 1), "levenshtein_weighted", x, y);
+			}
+		}
+	}
+
 	if (!failed.empty()) {
 		std::printf("FAILED: %s\n", failed.c_str());
 		return 1;

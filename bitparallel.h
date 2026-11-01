@@ -27,6 +27,7 @@
 #include <cstddef>                                // for std::size_t
 #include <cstdint>                                // for std::uint64_t
 #include <cstring>                                // for std::memset
+#include <memory>                                 // for std::unique_ptr
 #include <string>                                 // for std::string
 #include <string_view>                            // for std::string_view
 #include <type_traits>                            // for std::integral_constant
@@ -44,16 +45,26 @@
  * pattern[i] == c); the kernels then advance 64 dynamic-programming cells (or 64
  * match candidates) per machine word operation.
  *
- * Scratch memory is thread-local and grown on demand, so steady-state calls
- * perform no heap allocation. The character-to-row index is kept zeroed between
- * calls by clearing only the entries a call touched.
+ * Scratch memory is thread-local and grown on demand up to a cap, so steady-state
+ * calls perform no heap allocation and a thread never keeps more than the cap; a
+ * call that needs more takes a block of its own and frees it when it returns. The
+ * character-to-row index is kept zeroed between calls by clearing only the entries
+ * a call touched.
  */
 namespace strsim_detail {
 
 using word_t = std::uint64_t;
 inline constexpr std::size_t kWordBits = 64;
 
-// Per-thread growable word scratch.
+// The most word scratch a thread keeps between calls: 1 MiB per slot (the library
+// uses one slot). The default fits the masks of strings of about 300000 letters
+// (26 symbols) or 32000 bytes of all 256 values.
+#ifndef STRSIM_MAX_SCRATCH_WORDS
+#define STRSIM_MAX_SCRATCH_WORDS (std::size_t(1) << 17)
+#endif
+inline constexpr std::size_t kMaxScratchWords = STRSIM_MAX_SCRATCH_WORDS;
+
+// Per-thread growable word scratch, never larger than kMaxScratchWords.
 struct Scratch {
 	word_t* data = nullptr;
 	std::size_t cap = 0;
@@ -63,11 +74,20 @@ struct Scratch {
 	Scratch& operator=(const Scratch&) = delete;
 	~Scratch() { delete[] data; }
 
+	// At least n words, valid until the next call; null when n is above the cap.
 	word_t* ensure(std::size_t n) {
+		if (n > kMaxScratchWords) {
+			return nullptr;
+		}
 		if (n > cap) {
+			std::size_t want = n < 128 ? 128 : n + n / 2;
+			if (want > kMaxScratchWords) {
+				want = kMaxScratchWords;
+			}
+			word_t* block = new word_t[want];
 			delete[] data;
-			cap = n < 128 ? 128 : n + n / 2;
-			data = new word_t[cap];
+			data = block;
+			cap = want;
 		}
 		return data;
 	}
@@ -95,6 +115,7 @@ class Peq {
 	word_t _sextra[1];
 
 	Tls* _t = nullptr;
+	std::unique_ptr<word_t[]> _big;  // the one-off block of a request above the cap
 	std::uint16_t* _idx;
 	const unsigned char* _p;
 	std::size_t _n;
@@ -126,7 +147,13 @@ public:
 			_idx = _t->idx;
 			// Rows: one zero row plus at most min(n, 256) distinct characters.
 			const std::size_t distinct = n < 256 ? n : 256;
-			_rows = _t->rows.ensure((distinct + 1) * _nb + extra);
+			const std::size_t words = (distinct + 1) * _nb + extra;
+			_rows = _t->rows.ensure(words);
+			if (!_rows) {
+				// Above the thread's cap: a block for this call alone.
+				_big.reset(new word_t[words]);
+				_rows = _big.get();
+			}
 			for (std::size_t w = 0; w < _nb; ++w) {
 				_rows[w] = 0;
 			}
@@ -165,6 +192,9 @@ public:
 
 	// The `extra` scratch words requested at construction (one word for small patterns).
 	word_t* extra() const noexcept { return _extra; }
+
+	// The words of scratch this thread keeps between calls (for tests).
+	static std::size_t retained_words() noexcept { return tls().rows.cap; }
 };
 
 

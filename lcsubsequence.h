@@ -90,6 +90,7 @@ public:
 		: StringMetric<LCSubsequence>(icase) { }
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, LCSubsequence>)
 	LCSubsequence(T&& str, bool icase=true)
 		: StringMetric<LCSubsequence>(std::forward<T>(str), icase) { }
 };

@@ -98,6 +98,7 @@ public:
 		: StringMetric<LCSubstr>(icase) { }
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, LCSubstr>)
 	LCSubstr(T&& str, bool icase=true)
 		: StringMetric<LCSubstr>(std::forward<T>(str), icase) { }
 };

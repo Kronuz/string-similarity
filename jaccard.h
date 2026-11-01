@@ -89,6 +89,7 @@ public:
 		: StringMetric<Jaccard>(icase) { }
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, Jaccard>)
 	Jaccard(T&& str, bool icase=true)
 		: StringMetric<Jaccard>(std::forward<T>(str), icase),
 		  _set_str(_str.begin(), _str.end()) { }

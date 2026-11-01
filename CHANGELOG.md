@@ -8,6 +8,19 @@ release tags yet, so entries are dated.
 
 ### Added
 
+- Tests: `test/copy_move.cc` (copies and moves of every bound metric, from non-const
+  and const lvalues and rvalues, through vector regrowth), `test/scratch.cc` (the
+  scratch cap, built with the default cap and with 256 words), `test/threads.cc`
+  (eight threads against the oracles), `test/api_doc.cc` (the snippet of
+  `docs/API.md`), `test/frozen_dice.h` (the previous Sørensen-Dice, for the
+  differential test). `test/correctness.cc` checks that `icase=true` equals
+  fold-then-compare for every metric, `PhoneticMetric` over every inner metric, and
+  Jaro-Winkler at `jd == bt`.
+- `test/rapidfuzz_check.cc` is a CTest test (`string_similarity_rapidfuzz_check`;
+  `-DSTRING_SIMILARITY_RAPIDFUZZ_CHECK=OFF` skips it and the fetch of rapidfuzz-cpp). It
+  also checks Levenshtein, case-sensitive and bound Jaro and Jaro-Winkler, and both
+  argument orders.
+- `STRSIM_MAX_SCRATCH_WORDS` (compile time) sets the per-thread scratch cap.
 - `test/levenshtein_long.cc` (CTest `string_similarity_levenshtein`) checks the
   long-string Levenshtein kernel against a textbook dynamic program and the frozen
   previous kernel, `test/frozen_levenshtein.h`, at lengths 63, 64, 65, 127, 128, 129,
@@ -17,6 +30,23 @@ release tags yet, so entries are dated.
   rapidfuzz-cpp.
 
 ### Changed
+
+- **`Sorensen_Dice` counts the bigrams of a pair in a per-thread table of 65536
+  counts** (one per pair of bytes: the shorter string is counted into it, the longer
+  one consumes the counts, the shorter one clears them) instead of sorting vectors of
+  `string_view`s: no sorting and no allocation per call, also with `icase` (the case
+  folding runs inside the kernel, like for the other metrics). The metric keeps no
+  state beyond its bound string. Results are bit for bit the previous ones, except the
+  class listed under Fixed.
+- **The per-thread scratch is capped** at 1 MiB (`kMaxScratchWords`; a thread used to
+  keep the largest request it had ever seen, per slot: two 1 MiB strings through
+  `Jaro` kept about 100 MB per thread). A call whose masks need more takes a block of
+  its own and frees it on return. Results are unchanged.
+- **CI, ASan and UBSan job:** built with `-O1`, and the randomized tests run fewer
+  repetitions under a sanitizer, over the same lengths and alphabets
+  (`test/sanitizer.h`; the rapidfuzz cross-check runs 40,000 pairs there and a million
+  in the other jobs). The job took 39m56s of its 60 minutes.
+- Soundex and strings stay pinned by commit (strings `485f882`, soundex `4f192a7`).
 
 - **Levenshtein, patterns longer than 64 characters: banded, several columns per pass.**
   Results are exactly what the previous kernel returned (checked against it and the
@@ -47,6 +77,30 @@ release tags yet, so entries are dated.
 
 ### Fixed
 
+- **`PhoneticMetric<Encoder, Sorensen_Dice>` in the bound form scored 0 for every pair
+  whose codes differ.** The wrapper assigns the encoded string to the inner metric after
+  building it, and `Sorensen_Dice` had computed its bigrams in its own constructor: it
+  intersected the codes with an empty set. `Sorensen_Dice` keeps no bigrams now.
+  Oracle: encode with the encoder, then the multiset Dice of the codes
+  (`PhoneticMetric<SoundexEnglish, Sorensen_Dice>("Robert").similarity("Rubin")` is
+  8/11, it was 0); the test covers all four inner metrics, both forms.
+- **A copy or move of a bound `Sorensen_Dice` pointed into its source.** Its bigrams
+  were `string_view`s into `_str`: a copy kept scoring against the source's string
+  (a use after free once the source was gone, wrong scores once it was overwritten).
+  Same root as the item above.
+- **A non-const lvalue copy of a bound metric did not compile**
+  (`Levenshtein b = a;`): the constructor that binds a string beat the copy
+  constructor. The binding constructors of every metric (`Levenshtein`, `Jaro`,
+  `Jaro_Winkler`, `Sorensen_Dice`, `Jaccard`, `LCSubsequence`, `LCSubstr`,
+  `PhoneticMetric`) exclude their own type and its derived classes.
+- **`Sorensen_Dice` with `icase=true` scored 0 for two one-character strings that are
+  equal after folding** (`a` and `A`; the bound form compared its folded string with the
+  raw argument). Oracle: `icase=true` means fold both operands, then compare
+  case-sensitively, and identical strings score 1; the test checks that equivalence for
+  every metric, two-argument and bound. Only this class changes; the differential
+  test lists it.
+- `docs/API.md`: the usage snippet compiles (`std::string` operands, the includes it
+  needs); `test/api_doc.cc` builds it.
 - **`Jaro_Winkler` computes Jaro-Winkler.** It returned the plain Jaro score (its
   CRTP base dispatched to `Jaro`) and `name()` said so. It is its own
   `StringMetric` (no longer a subclass of `Jaro`): similarity

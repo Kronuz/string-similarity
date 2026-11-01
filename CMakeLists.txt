@@ -6,8 +6,9 @@ include(FetchContent)
 # --- Dependency: strings ---
 # basic_string_metric.h includes "strings.hh" for strings::upper (its
 # case-folding step). It lives in the sibling strings library, pulled in here so
-# the include resolves. We track its tip with GIT_TAG main, like the rest of the
-# family. We declare it before soundex so this declaration wins: soundex also
+# the include resolves. It is pinned by commit (the commit soundex pins too), so a
+# change in strings reaches this library when the pin moves. We declare it before
+# soundex so this declaration wins: soundex also
 # FetchContent_Declare's strings, and FetchContent dedups by the declared name,
 # keeping the first declaration.
 FetchContent_Declare(
@@ -76,26 +77,63 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(string_similarity_levenshtein PRIVATE string_similarity)
   add_test(NAME string_similarity_levenshtein COMMAND string_similarity_levenshtein)
 
+  # The usage snippet of docs/API.md compiles and says what it claims.
+  add_executable(string_similarity_api_doc test/api_doc.cc)
+  target_link_libraries(string_similarity_api_doc PRIVATE string_similarity)
+  add_test(NAME string_similarity_api_doc COMMAND string_similarity_api_doc)
+
+  # Copies and moves of bound metrics (a copy must not point into its source), from
+  # non-const lvalues, const lvalues and rvalues, and through vector regrowth.
+  add_executable(string_similarity_copy test/copy_move.cc)
+  target_link_libraries(string_similarity_copy PRIVATE string_similarity)
+  add_test(NAME string_similarity_copy COMMAND string_similarity_copy)
+
+  # The per-thread mask scratch is capped (1 MiB by default): strings whose masks need
+  # more get a block of their own. Built twice, with the default cap and with a cap of
+  # 256 words that sends strings of a few hundred characters down the same path.
+  add_executable(string_similarity_scratch test/scratch.cc)
+  target_link_libraries(string_similarity_scratch PRIVATE string_similarity)
+  add_test(NAME string_similarity_scratch COMMAND string_similarity_scratch)
+  add_executable(string_similarity_scratch_small test/scratch.cc)
+  target_link_libraries(string_similarity_scratch_small PRIVATE string_similarity)
+  target_compile_definitions(string_similarity_scratch_small PRIVATE STRSIM_MAX_SCRATCH_WORDS=256)
+  add_test(NAME string_similarity_scratch_small COMMAND string_similarity_scratch_small)
+
+  # Several threads at once: the scratch and the bigram table are per thread.
+  find_package(Threads REQUIRED)
+  add_executable(string_similarity_threads test/threads.cc)
+  target_link_libraries(string_similarity_threads PRIVATE string_similarity Threads::Threads)
+  add_test(NAME string_similarity_threads COMMAND string_similarity_threads)
+
   # A runnable tour of the library (not a test): build & run ./build/string_similarity_demo
   add_executable(string_similarity_demo examples/demo.cc)
   target_link_libraries(string_similarity_demo PRIVATE string_similarity)
 endif()
 
-# Optional benchmark against rapidfuzz-cpp (and the frozen legacy implementation).
-# The comparator is fetched only here: it is never a dependency of the library target.
+# rapidfuzz-cpp is a comparator: the cross-check test and the benchmark fetch it, the
+# library target never depends on it. The cross-check (Levenshtein, Jaro and
+# Jaro-Winkler against rapidfuzz on random pairs) is a CTest test; turn it off to
+# configure without network access to GitHub's rapidfuzz repository.
+option(STRING_SIMILARITY_RAPIDFUZZ_CHECK "Test the metrics against rapidfuzz-cpp (fetches it)" ON)
 option(STRING_SIMILARITY_BUILD_BENCH "Build bench/bench.cc (fetches rapidfuzz-cpp)" OFF)
-if(STRING_SIMILARITY_BUILD_BENCH AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+if((STRING_SIMILARITY_RAPIDFUZZ_CHECK OR STRING_SIMILARITY_BUILD_BENCH) AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   FetchContent_Declare(
     rapidfuzz
     GIT_REPOSITORY https://github.com/rapidfuzz/rapidfuzz-cpp.git
     GIT_TAG        v3.3.4
   )
   FetchContent_MakeAvailable(rapidfuzz)
-  add_executable(string_similarity_bench bench/bench.cc)
-  target_link_libraries(string_similarity_bench PRIVATE string_similarity rapidfuzz::rapidfuzz)
-  target_compile_options(string_similarity_bench PRIVATE -O3)
-  # Jaro / Jaro-Winkler against rapidfuzz on a million random pairs (not part of ctest).
+endif()
+
+if(STRING_SIMILARITY_RAPIDFUZZ_CHECK AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_executable(string_similarity_rapidfuzz_check test/rapidfuzz_check.cc)
   target_link_libraries(string_similarity_rapidfuzz_check PRIVATE string_similarity rapidfuzz::rapidfuzz)
   target_compile_options(string_similarity_rapidfuzz_check PRIVATE -O2)
+  add_test(NAME string_similarity_rapidfuzz_check COMMAND string_similarity_rapidfuzz_check)
+endif()
+
+if(STRING_SIMILARITY_BUILD_BENCH AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  add_executable(string_similarity_bench bench/bench.cc)
+  target_link_libraries(string_similarity_bench PRIVATE string_similarity rapidfuzz::rapidfuzz)
+  target_compile_options(string_similarity_bench PRIVATE -O3)
 endif()

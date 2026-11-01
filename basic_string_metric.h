@@ -26,9 +26,22 @@
 #include <cstddef>                                // for std::size_t
 #include <string>                                 // for std::string
 #include <string_view>                            // for std::string_view
+#include <type_traits>                            // for std::is_base_of_v, std::remove_cvref_t
 #include <utility>                                // for std::forward
 
 #include "strings.hh"                             // for strings::upper
+
+
+namespace strsim_detail {
+
+// True when T, without references and cv-qualifiers, is Impl or derives from it.
+// The constructors that bind a string to a metric exclude these types: for a
+// non-const lvalue, a forwarding constructor would otherwise beat the copy
+// constructor.
+template <typename T, typename Impl>
+inline constexpr bool is_metric_v = std::is_base_of_v<Impl, std::remove_cvref_t<T>>;
+
+}  // namespace strsim_detail
 
 
 /*

@@ -31,6 +31,10 @@
 //     one-character strings equal after case folding.
 //   Jaro_Winkler: a common prefix with Jaro above the boost threshold, plus the
 //     Jaro classes.
+// Sorensen_Dice is compared with test/frozen_dice.h (the multiset of bigrams as sorted
+// vectors, before the counting table):
+//   Sorensen_Dice: two different one-character strings that are equal after case
+//     folding (the frozen one scored 0; identical strings score 1).
 
 #include <algorithm>
 #include <cstdint>
@@ -44,8 +48,11 @@
 #include "levenshtein.h"
 #include "jaro.h"
 #include "jaro_winkler.h"
+#include "sorensen_dice.h"
 #include "legacy_metrics.h"
+#include "frozen_dice.h"
 #include "oracle.h"
+#include "sanitizer.h"
 
 static std::mt19937_64 rng(0x5eed1234abcdULL);
 static size_t checks = 0, failures = 0;
@@ -88,7 +95,7 @@ static std::string mutate(std::string s, unsigned edits, unsigned alphabet, unsi
 }
 
 static size_t g_changed[8] = {0};
-enum { kLev, kLevBound, kJaro, kJaroBound, kJW, kJWBound };
+enum { kLev, kLevBound, kJaro, kJaroBound, kJW, kJWBound, kDice, kDiceBound };
 
 // Folded text, as the library folds it (only the folding is shared; the metric is not).
 static std::string fold(const std::string& s, bool icase) { return icase ? strings::upper(s) : s; }
@@ -111,9 +118,10 @@ static double jw_prefix_boosts(const std::string& a, const std::string& b, bool 
 	return fa.size() && fb.size() && fa[0] == fb[0] && oracle::jaro(fa, fb).value > 0.7;
 }
 
-// The O(n*m) Levenshtein oracle is skipped for long pairs (test/correctness.cc covers those).
+// The O(n*m) Levenshtein oracle and the map-based Dice oracle are skipped for long pairs
+// (test/correctness.cc covers those).
 static bool skip_oracle(const char* what, const std::string& x, const std::string& y) {
-	return what[0] == 'L' && x.size() * y.size() > 20000;
+	return (what[0] == 'L' || what[0] == 'S') && x.size() * y.size() > 20000;
 }
 
 // One metric against legacy (where unchanged) and the oracle (always).
@@ -172,6 +180,27 @@ static double want_jw(const std::string& a, const std::string& b, bool dist, boo
 	return dist ? 1.0 - s : s;
 }
 
+static double want_dice(const std::string& a, const std::string& b, bool dist, bool icase) {
+	double s;
+	if (a.empty() || b.empty()) {
+		s = 0.0;
+	} else if (a == b) {
+		s = 1.0;
+	} else {
+		const auto fa = fold(a, icase), fb = fold(b, icase);
+		s = fa == fb ? 1.0 : oracle::dice_multiset(fa, fb);  // identical after folding: identical
+	}
+	return dist ? 1.0 - s : s;
+}
+
+// Dice classes whose result is NOT corrected: all but two different one-character
+// strings that are equal after folding.
+static bool dice_unchanged(const std::string& a, const std::string& b, bool icase) {
+	if (a.empty() || b.empty() || a == b) return true;  // base cases in StringMetric
+	const auto fa = fold(a, icase);
+	return !(fa.size() == 1 && fa == fold(b, icase));
+}
+
 static double want_lev(const std::string& a, const std::string& b, bool dist, bool icase) {
 	if (a.empty() || b.empty()) return dist ? 1.0 : 0.0;
 	if (a == b) return dist ? 0.0 : 1.0;
@@ -220,11 +249,21 @@ static void run_pair(const std::string& a, const std::string& b) {
 		Jaro_Winkler nwb(a, icase);
 		legacy::Jaro_Winkler owb(a, icase);
 		compare_changed_bound(nwb, owb, "Jaro_Winkler(bound)", kJWBound, a, b, icase, wu, want_jw);
+		auto du = [&](const std::string& x, const std::string& y) { return dice_unchanged(x, y, icase); };
+		Sorensen_Dice nd(icase);
+		frozen_dice::Sorensen_Dice od(icase);
+		compare_changed(nd, od, "Sorensen_Dice", kDice, a, b, icase, du, want_dice);
+		Sorensen_Dice ndb(a, icase);
+		frozen_dice::Sorensen_Dice odb(a, icase);
+		compare_changed_bound(ndb, odb, "Sorensen_Dice(bound)", kDiceBound, a, b, icase, du, want_dice);
 	}
 }
 
 int main(int argc, char**) {
-	const bool quick = argc > 1;  // any argument: a smaller run (for slow sanitizer builds)
+	const bool quick = argc > 1;  // any argument: a smaller run (fewer lengths, for slow builds)
+	// Under a sanitizer (10 to 40 times slower) every length and alphabet still runs, with
+	// fewer random repetitions of each.
+	const bool scaled = quick || STRSIM_SANITIZED;
 	// Edge inputs.
 	const std::vector<std::string> edges = {
 		"", "a", "A", "b", "ab", "AB", "aB", "ba", "abc", "cba", "aaaa", "aaab", "abcdefgh", "ABCDEFGH",
@@ -251,13 +290,13 @@ int main(int argc, char**) {
 			const size_t la = lens[ia];
 			for (size_t ib = 0; ib < nlens; ++ib) {
 				const size_t lb = lens[ib];
-				const int reps = (la * lb > 100000) ? 1 : (la * lb > 5000 ? 2 : 10);
+				const int reps = scaled ? 1 : (la * lb > 100000) ? 1 : (la * lb > 5000 ? 2 : 10);
 				for (int r = 0; r < reps; ++r) {
 					run_pair(random_string(la, alpha, base), random_string(lb, alpha, base));
 				}
 			}
 			// Related pairs: the interesting regime for transpositions and short distances.
-			for (int r = 0; r < (la > 300 ? 1 : 6); ++r) {
+			for (int r = 0; r < (scaled || la > 300 ? 1 : 6); ++r) {
 				auto a = random_string(la, alpha, base);
 				run_pair(a, mutate(a, 1 + rng() % 6, alpha, base));
 				run_pair(a, mutate(a, la / 4 + 1, alpha, base));
@@ -265,7 +304,7 @@ int main(int argc, char**) {
 		}
 	}
 	// Mixed case words.
-	for (int r = 0; r < (quick ? 300 : 3000); ++r) {
+	for (int r = 0; r < (scaled ? 300 : 3000); ++r) {
 		auto a = random_string(1 + rng() % 14, 52, 'A');
 		for (auto& c : a) if (c > 'Z' && c < 'a') c = char(c + 32);
 		auto b = mutate(a, rng() % 4, 52, 'A');
@@ -273,8 +312,8 @@ int main(int argc, char**) {
 	}
 
 	std::printf("%zu checks, %zu failures\n", checks, failures);
-	static const char* names[] = {"Levenshtein", "Levenshtein(bound)", "Jaro", "Jaro(bound)", "Jaro_Winkler", "Jaro_Winkler(bound)"};
-	for (int k = 0; k <= kJWBound; ++k) {
+	static const char* names[] = {"Levenshtein", "Levenshtein(bound)", "Jaro", "Jaro(bound)", "Jaro_Winkler", "Jaro_Winkler(bound)", "Sorensen_Dice", "Sorensen_Dice(bound)"};
+	for (int k = 0; k <= kDiceBound; ++k) {
 		std::printf("deliberate differences from legacy, %s: %zu\n", names[k], g_changed[k]);
 		if (!g_changed[k]) {
 			std::printf("MISMATCH: no pair exercised the corrected class for %s\n", names[k]);

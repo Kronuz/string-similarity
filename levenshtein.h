@@ -134,6 +134,7 @@ public:
 		  _maxCost(std::max(_subst_cost, _ins_del_cost)) { }
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, Levenshtein>)
 	Levenshtein(T&& str, bool icase=true, size_t subst_cost=1.0, size_t ins_del_cost=1.0)
 		: StringMetric<Levenshtein>(std::forward<T>(str), icase),
 		  _subst_cost(subst_cost),

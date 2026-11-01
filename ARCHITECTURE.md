@@ -34,8 +34,10 @@ operand to `1` / `0`), then forwards to the subclass through a `static_cast<cons
 Impl*>(this)`, calling `_distance` / `_similarity` / `_name` / `_description`.
 `_icase` case-folds both operands with `strings::upper` before the subclass sees
 them, so each metric implements only the math, on already-normalized input.
-`Levenshtein` and `Jaro` define `_icase_distance` / `_icase_similarity`; the base
-detects them with `requires` and lets those kernels fold case on the fly instead.
+`Levenshtein`, `Jaro`, `Jaro_Winkler` and `Sorensen_Dice` define `_icase_distance` /
+`_icase_similarity`; the base detects them with `requires` and lets those kernels fold
+case on the fly instead. `icase=true` means "fold both operands, then compare": for a
+bound metric the stored string is folded once and only the comparand is folded per call.
 
 The subclasses are befriended (`friend class StringMetric<Impl>;`) so the base can
 reach their private `_distance` / `_similarity`. Each metric defines those two
@@ -57,15 +59,30 @@ plus their one-argument forms, and `_name` / `_description`.
   for the former, classic LCS for the latter) and divide by `max(len1, len2)` to
   get a similarity in `[0, 1]`.
 - **Jaccard** builds a `std::set<char>` of each string and returns
-  `|intersection| / |union|`. **Sorensen_Dice** works over the strings'
-  2-character substrings (bigrams) as multisets: `2 * |shared| / (|b1| + |b2|)`. Both count the
-  intersection with the `Counter` helper, a minimal output-iterator sink for
-  `std::set_intersection` that just tallies `push_back` calls instead of
-  materializing the intersection.
+  `|intersection| / |union|`, counting the intersection with the `Counter` helper, a
+  minimal output-iterator sink for `std::set_intersection` that just tallies `push_back`
+  calls instead of materializing the intersection.
+- **Sorensen_Dice** works over the strings' 2-character substrings (bigrams) as
+  multisets: `2 * |shared| / (|b1| + |b2|)`. A bigram is the 16 bits of its two bytes;
+  a per-thread table of 65536 counts (zero between calls, 256 KiB of zero pages) takes
+  the bigrams of the shorter string, the longer one consumes them (each hit is one
+  shared bigram) and the shorter one clears them again: three passes, no sorting, no
+  allocation. The metric keeps no state beyond its bound string, so a copy is a plain
+  copy. A string of one character has no bigram: two equal ones score 1 (identical),
+  anything else 0.
 - **PhoneticMetric<Encoder, Metric>** derives from the inner `Metric` and holds a
   phonetic `Encoder`. Its `_distance` / `_similarity` encode both operands and
   defer to the inner metric over the codes; its constructor stores the encoded
   form as the bound `_str`. `name()` reports the encoder's name.
+
+## Scratch memory
+
+The mask tables of strings longer than 64 characters (`Peq`) live in thread-local
+scratch that grows on demand up to `kMaxScratchWords` (1 MiB; `STRSIM_MAX_SCRATCH_WORDS`
+overrides it at compile time): a thread never keeps more. A call whose masks need more
+(about 300000 letters of 26 symbols, 32000 bytes of all 256 values) takes a block of its
+own and frees it on return; results are the same. The Sørensen-Dice count table is a
+fixed 256 KiB per thread that exists once a thread has used it.
 
 ## The Levenshtein kernel
 

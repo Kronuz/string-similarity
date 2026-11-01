@@ -128,6 +128,7 @@ public:
 	}
 
 	template <typename T>
+		requires (!strsim_detail::is_metric_v<T, Jaro_Winkler>)
 	Jaro_Winkler(T&& str, bool icase=true, double p=0.1, double bt=0.7)
 		: StringMetric<Jaro_Winkler>(std::forward<T>(str), icase),
 		  _p(p),
