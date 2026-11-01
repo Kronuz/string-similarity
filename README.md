@@ -96,16 +96,16 @@ letters; *3000 chars, 26 letters* is one random string of 3,000 letters against 
 *1% edits* is a string against a copy with 1% random substitutions, insertions and deletions;
 *random bytes of 128 values* are bytes 0x80 to 0xFF. Bold marks the faster of each pair.
 
-| Workload | Apple M4 Pro | rapidfuzz-cpp | Intel Core i9-9980HK | rapidfuzz-cpp |
-| --- | ---: | ---: | ---: | ---: |
-| Levenshtein, random words | **35 ns** | 76 ns | **64 ns** | 96 ns |
-| Levenshtein, 3000 chars, 26 letters | **135 us** | 237 us | **247 us** | 323 us |
-| Levenshtein, 3000 chars, 1% edits | **13.9 us** | 223 us | **25.9 us** | 306 us |
-| Jaro, random words | **32 ns** | 67 ns | **57 ns** | 95 ns |
-| Jaro, 300 chars, 3 edits | **1.1 us** | 1.3 us | **2.2 us** | 3.3 us |
-| Jaro, 300 chars, random bytes of 128 values | 2.6 us | **2.3 us** | **4.3 us** | 5.5 us |
+| Workload | Apple M4 Pro: string-similarity | rapidfuzz-cpp | ratio | Intel Core i9-9980HK: string-similarity | rapidfuzz-cpp | ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Levenshtein, random words | **33 ns** | 74 ns | 0.45 | **64 ns** | 93 ns | 0.69 |
+| Levenshtein, 3000 chars, 26 letters | **133.1 us** | 238.3 us | 0.56 | **244.6 us** | 319.3 us | 0.77 |
+| Levenshtein, 3000 chars, 1% edits | **14.0 us** | 226.0 us | 0.06 | **26.4 us** | 306.2 us | 0.09 |
+| Jaro, random words | **31 ns** | 67 ns | 0.46 | **57 ns** | 94 ns | 0.61 |
+| Jaro, 300 chars, 3 edits | **1.1 us** | 1.3 us | 0.82 | **2.4 us** | 3.4 us | 0.70 |
+| Jaro, 300 chars, random bytes of 128 values | 2.6 us | **2.4 us** | 1.10 | **4.6 us** | 5.4 us | 0.84 |
 
-Apple clang 17, `-O3`, macOS 15:
+Apple clang 17, `-O3`; the M4 Pro runs macOS 26 and the i9 macOS 15:
 
 ```sh
 cmake -B build -DSTRING_SIMILARITY_BUILD_BENCH=ON -DCMAKE_BUILD_TYPE=Release
