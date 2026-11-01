@@ -97,13 +97,13 @@ private:
 	}
 
 	// Case folding happens here, on the fly, rather than in the base class.
-	double _icase_distance(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
-		strsim_detail::Folded f1(str1, fold1), f2(str2, fold2);
+	double _icase_distance(std::string_view str1, std::string_view str2, bool fold_first, bool fold_second) const {
+		strsim_detail::Folded f1(str1, fold_first), f2(str2, fold_second);
 		return _distance(f1.view(), f2.view());
 	}
 
-	double _icase_similarity(std::string_view str1, std::string_view str2, bool fold1, bool fold2) const {
-		return 1.0 - _icase_distance(str1, str2, fold1, fold2);
+	double _icase_similarity(std::string_view str1, std::string_view str2, bool fold_first, bool fold_second) const {
+		return 1.0 - _icase_distance(str1, str2, fold_first, fold_second);
 	}
 
 	double _distance(std::string_view str2) const {

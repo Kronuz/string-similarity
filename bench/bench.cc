@@ -25,7 +25,7 @@
 // Benchmark: this library vs the frozen legacy implementation vs
 // rapidfuzz-cpp. rapidfuzz is a comparator only: it is fetched by the bench
 // target (-DSTRING_SIMILARITY_BUILD_BENCH=ON) and is not a dependency of the
-// library. Prints best-of-5 nanoseconds per call. Run it under `quiet strict`.
+// library. Prints best-of-5 nanoseconds per call. Run it on an otherwise idle machine.
 
 #include <algorithm>
 #include <chrono>

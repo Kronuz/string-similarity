@@ -24,13 +24,15 @@ test/correctness.cc          Every metric against the textbook oracles in test/o
 test/copy_move.cc            Bound metrics copied and moved (non-const lvalue, const lvalue, rvalue, vector regrowth) against the oracles.
 test/scratch.cc              The capped scratch: results and retained words with the default cap and with a cap of 256 words (`string_similarity_scratch_small`).
 test/threads.cc              Several threads at once against the oracles (the scratch and the Dice table are per thread).
+test/subclass_compat.cc      The protected members a subclass reads (`_str`, `_icase`, the Levenshtein costs, the Winkler factors, the phonetic encoder) and that a derived metric scores what its base scores. A member that stops being accessible stops the test from building.
 test/differential.cc         Bit-for-bit comparison of Levenshtein/Jaro/Jaro_Winkler against test/legacy_metrics.h (frozen pre-bit-parallel code; never edit it) and of Sorensen_Dice against test/frozen_dice.h (frozen sort-based multiset; never edit it). Fewer random repetitions, all lengths, under a sanitizer (test/sanitizer.h).
 test/levenshtein_long.cc     The banded Levenshtein kernel at lengths 63..10000 against a textbook DP, test/frozen_levenshtein.h (the previous full-table kernel; never edit it) and a direct drive of the band.
 test/rapidfuzz_check.cc      Jaro/Jaro_Winkler/Levenshtein against rapidfuzz-cpp (CTest; `STRING_SIMILARITY_RAPIDFUZZ_CHECK` fetches it).
 test/sanitizer.h             `STRSIM_SANITIZED`: 1 under ASan, TSan or MSan, to scale random repetitions down.
 bench/bench.cc               Benchmark vs legacy/previous implementations and rapidfuzz-cpp (optional CMake target; comparator fetched only for it and the cross-check).
+tools/mutants.py             Breaks the kernels, the metrics and the members a subclass reads in 69 ways and requires a test to fail on each (`tools/mutants.py BUILD_DIR`, a build configured with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`).
 examples/demo.cc             A runnable tour (not a test).
-CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex (and rapidfuzz-cpp for the cross-check and bench); CTest tests `string_similarity`, `_differential`, `_correctness`, `_levenshtein`, `_copy`, `_scratch`, `_scratch_small`, `_threads`, `_api_doc`, `_rapidfuzz_check`.
+CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex (and rapidfuzz-cpp for the cross-check and bench); CTest tests `string_similarity`, `_differential`, `_correctness`, `_levenshtein`, `_copy`, `_subclass`, `_scratch`, `_scratch_small`, `_threads`, `_api_doc`, `_rapidfuzz_check`.
 LICENSE                      MIT, Copyright (c) 2026 Germán Méndez Bravo and (c) 2015-2020 Dubalu LLC.
 CHANGELOG.md                 Behavior and performance changes, dated.
 README.md                    What it is, install, quick start.

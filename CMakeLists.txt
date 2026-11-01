@@ -88,6 +88,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   target_link_libraries(string_similarity_copy PRIVATE string_similarity)
   add_test(NAME string_similarity_copy COMMAND string_similarity_copy)
 
+  # The protected members a subclass reads (the bound string, the case flag, the costs, the
+  # Winkler factors, the encoder): the test stops building when one stops being accessible.
+  add_executable(string_similarity_subclass test/subclass_compat.cc)
+  target_link_libraries(string_similarity_subclass PRIVATE string_similarity)
+  add_test(NAME string_similarity_subclass COMMAND string_similarity_subclass)
+
   # The per-thread mask scratch is capped (1 MiB by default): strings whose masks need
   # more get a block of their own. Built twice, with the default cap and with a cap of
   # 256 words that sends strings of a few hundred characters down the same path.
