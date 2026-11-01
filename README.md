@@ -170,7 +170,8 @@ cmake --build build --target string_similarity_bench && ./build/string_similarit
 
 The bench target alone fetches rapidfuzz-cpp. Numbers move by a few percent with
 code layout and machine load; compare two builds in one run, as the A/A rerun row
-of the bench does. [CHANGELOG.md](CHANGELOG.md) has the changes to results and
+of the bench does. [docs/perf/banded-levenshtein.md](docs/perf/banded-levenshtein.md) has the method
+and the numbers of the long-string Levenshtein kernel. [CHANGELOG.md](CHANGELOG.md) has the changes to results and
 speed, with before and after numbers.
 
 ## 🤝 Contributing

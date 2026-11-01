@@ -4,6 +4,27 @@ All notable changes to this library. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The library has no
 release tags yet, so entries are dated.
 
+## 2026-11-01
+
+### Added
+
+- `test/subclass_compat.cc` (CTest `string_similarity_subclass`): a consumer that derives from
+  a metric to write it out reads `_str`, `_icase`, the Levenshtein costs, the Winkler factors
+  and the phonetic encoder, and builds an equal metric from them. The test reads each of those
+  and checks their values and defaults, and that a derived metric scores what its base scores.
+  It stops building when one of the members becomes private.
+- `tools/mutants.py` breaks the Levenshtein kernel, Jaro, Jaro-Winkler, Sorensen-Dice, the other
+  metrics, the phonetic wrapper and the members a subclass reads in 69 ways and requires a test
+  to fail on each. Two of them make a heap buffer too small and need AddressSanitizer
+  (`MUTANT_FLAGS=-fsanitize=address`).
+- `docs/perf/banded-levenshtein.md`: the method, the numbers on two machines and the column-count
+  rows of the long-string Levenshtein kernel.
+
+### Changed
+
+- The case-folding parameters of the `_icase_*` kernels are named `fold_first` and `fold_second`.
+  No result changes.
+
 ## 2026-10-31
 
 ### Added

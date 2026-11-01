@@ -38,6 +38,7 @@ CHANGELOG.md                 Behavior and performance changes, dated.
 README.md                    What it is, install, quick start.
 docs/API.md                  The metrics and their usage.
 docs/string-similarity.d2    The README diagram's source (docs/string-similarity.svg is rendered from it).
+docs/perf/banded-levenshtein.md  Method, numbers (Apple M4 Pro, Intel i9-9980HK) and the column-count evidence of the banded Levenshtein kernel.
 ARCHITECTURE.md              The CRTP base, what each metric computes, the dispatch subtlety.
 ```
 
@@ -110,7 +111,7 @@ when the pin moves, and the soundex pin names the commit that `strings` pins as 
   metric.
 - **Optimized kernels fold case themselves.** `Levenshtein`, `Jaro`, `Jaro_Winkler` and `Sorensen_Dice` define `_icase_distance` / `_icase_similarity`; the base calls those (detected with `requires`) instead of upper-casing copies. Output must stay identical to `test/legacy_metrics.h` (and, for Dice, `test/frozen_dice.h`) except for the input classes listed at the top of `test/differential.cc` (Levenshtein insert/delete cost != 1 or both costs 0, Jaro matching, Jaro_Winkler, two one-character strings equal after folding for Dice), where the earlier result is a known bug (see `CHANGELOG.md`); everywhere else the test enforces equality. `test/correctness.cc` checks every metric against the textbook oracles in `test/oracle.h`; `test/rapidfuzz_check.cc` checks Jaro/Jaro_Winkler/Levenshtein against rapidfuzz.
 - **The banded kernel's result is exact only within its bound.** `levenshtein_band(..., k, exact)` returns the distance when it is at most `k` (or when `exact` is set) and an upper bound above `k` otherwise; `levenshtein_unit` relies on that to retry with `k = result`. Pessimistic starts (a block entering below the band begins with every vertical delta +1, the first active block's incoming delta is +1) are what keep the table an over-estimate; do not "improve" them to anything below the true value. Do not index blocks outside `[first, last]`, and keep `score` tied to the last active block.
-- **`levenshtein_unit`'s one-word path stays small.** The multi-word path is `STRSIM_NOINLINE` (`levenshtein_blocks`): inlined, it made a 16-32 character near-identical word about 5% slower on arm64. `kColumns` is 3 on arm64 and 2 elsewhere (measured: on M4 two is 7-8% slower than one at 288-384 characters, three is faster everywhere; on x86-64 three and four are slower than two); initialize per-column arrays element by element (a loop became a `memset_pattern16` call per group).
+- **`levenshtein_unit`'s one-word path stays small.** The multi-word path is `STRSIM_NOINLINE` (`levenshtein_blocks`): inlined, it made a 16-32 character near-identical word about 5% slower on arm64. `kColumns` is 3 on arm64 and 2 elsewhere (measured: on Apple M4 two is 7-8% slower than one at 288-384 characters, three is faster everywhere; on x86-64 three and four are slower than two; [docs/perf/banded-levenshtein.md](docs/perf/banded-levenshtein.md) has the rows); initialize per-column arrays element by element (a loop became a `memset_pattern16` call per group).
 - **The dispatch is fixed at the StringMetric<...> layer.** A derived
   metric must not rely on the base's CRTP dispatch reaching its code: `Jaro_Winkler`
   names itself in `StringMetric<...>`, and `PhoneticMetric` (derived from its inner

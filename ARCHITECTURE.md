@@ -119,9 +119,9 @@ latency. `lev_pass` advances `kColumns` columns per visit of each block: the
 columns are independent chains, the block's vertical deltas are loaded and stored
 once, and the processor overlaps them (a block costs 1.0 ns instead of 1.85 on
 Apple M4, 1.9 instead of 2.3 on an Intel i9). `kColumns` is 3 on arm64 (31
-registers; two columns are 7-8% slower than one at 288-384 characters on M4, three
-are faster at every length on M1 and M4) and 2 elsewhere (x86-64's 16 registers:
-three and four are slower).
+registers; two columns are 7-8% slower than one at 288-384 characters on Apple M4, three
+are faster at every length on Apple M1 and M4) and 2 elsewhere (x86-64's 16 registers:
+three and four are slower; the rows are in [docs/perf/banded-levenshtein.md](docs/perf/banded-levenshtein.md)).
 
 *The band.* Any alignment of cost at most `k` stays on the diagonals
 `j - i` in `[-s, (n - m) + s]` with `s = (k - (n - m)) / 2`: touching diagonal `d`
