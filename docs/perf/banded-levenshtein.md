@@ -17,7 +17,7 @@ Results are exactly what the frozen quadratic program and the previous block ker
 - Bench: `bench/bench.cc`, target `string_similarity_bench` (`-DSTRING_SIMILARITY_BUILD_BENCH=ON`; the bench target alone fetches rapidfuzz-cpp v3.3.4), rows "long Levenshtein": the previous kernel ("before"), the library ("after") and `rapidfuzz::levenshtein_distance`, best of 5 per row. "Edits" are random substitutions, insertions and deletions; "4 letters" and "26 letters" name the alphabet.
 - Mid-length rows (130 to 700 characters): a second harness with the same three arms, best of 7 calibrated runs per row.
 - Words and mid-length strings (4 to 256 characters): a harness that times 4096 random pairs per length and three kinds of pair (random, one edit apart, random with `icase=true`), best of 9, built once against the previous headers and once against the library and run alternately in the same hold; the tables give the median of three rounds.
-- Machines: Apple M4 Pro and Intel Core i9-9980HK (macOS 15, x86_64). Apple clang 17, `-O3`, with the machine to itself.
+- Machines: Apple M4 Pro and Intel Core i9-9980HK (macOS 15, x86_64), written M4 Pro and i9 in the tables. Apple clang 17, `-O3`, with the machine to itself.
 - Identity: every bench run first checks the library against the frozen implementations (0 mismatches).
 
 ## Results
