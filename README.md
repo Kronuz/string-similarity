@@ -86,9 +86,15 @@ Not for:
 
 ## ⚡ Performance
 
-Time per call against [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp)
-v3.3.4, best of two runs, `icase=false`; "edits" are random substitutions, insertions,
-and deletions.
+Time per call to compare one pair of strings: the best of two runs of `bench/bench.cc` with
+`icase=false`. *string-similarity* is `Levenshtein`, `Jaro` and `Jaro_Winkler` from this library;
+*rapidfuzz-cpp* is `levenshtein_normalized_distance`, `jaro_similarity` and
+`jaro_winkler_similarity` from [rapidfuzz-cpp v3.3.4](https://github.com/rapidfuzz/rapidfuzz-cpp/tree/v3.3.4),
+the library most C++ code uses for these metrics. Before it times a row, the bench checks that both
+return the same value on every pair (to 1e-12). *Random words* are 3 to 12 random lower-case
+letters; *3000 chars, 26 letters* is one random string of 3,000 letters against another;
+*1% edits* is a string against a copy with 1% random substitutions, insertions and deletions;
+*random bytes of 128 values* are bytes 0x80 to 0xFF. Bold marks the faster of each pair.
 
 | Workload | Apple M4 Pro | rapidfuzz-cpp | Intel Core i9-9980HK | rapidfuzz-cpp |
 | --- | ---: | ---: | ---: | ---: |
