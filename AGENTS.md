@@ -35,9 +35,9 @@ examples/demo.cc             A runnable tour (not a test).
 CMakeLists.txt               INTERFACE library `string_similarity` (+ alias); FetchContent strings + soundex (and rapidfuzz-cpp for the cross-check and bench); CTest tests `string_similarity`, `_differential`, `_correctness`, `_levenshtein`, `_copy`, `_subclass`, `_scratch`, `_scratch_small`, `_threads`, `_api_doc`, `_rapidfuzz_check`.
 LICENSE                      MIT, Copyright (c) 2026 Germán Méndez Bravo and (c) 2015-2020 Dubalu LLC.
 CHANGELOG.md                 Behavior and performance changes, dated.
-README.md                    What it is, install, quick start.
+README.md                    What it is, quick start, install.
 docs/API.md                  The metrics and their usage.
-docs/string-similarity.d2    The README diagram's source (docs/string-similarity.svg is rendered from it).
+docs/perf/README.md          The benchmark tables against rapidfuzz-cpp.
 docs/perf/banded-levenshtein.md  Method, numbers (Apple M4 Pro, Intel i9-9980HK) and the column-count evidence of the banded Levenshtein kernel.
 ARCHITECTURE.md              The CRTP base, what each metric computes, the dispatch subtlety.
 ```
