@@ -9,9 +9,9 @@ easy to fall into.
 
 ```
 basic_string_metric.h        CRTP base StringMetric<Impl> + the Counter helper. The shared surface. Header.
-bitparallel.h                Internal bit-parallel kernels (Myers/Hyyro edit distance, banded and several columns per pass), mask tables (`PeqWord` for one word, `Peq` for more and for Jaro), the capped thread-local scratch, on-the-fly case folding.
+bitparallel.h                Internal bit-parallel kernels (Myers/Hyyro edit distance, banded and several columns per pass), mask tables (`PeqWord` for one word, `DirectRows` for up to 64 words, `Peq` for more), the capped thread-local scratch, `common_prefix`, on-the-fly case folding.
 levenshtein.h                Edit distance, normalized by the longer length.
-jaro.h                       Jaro similarity.
+jaro.h                       Jaro similarity: common prefix stripped, one-word matching in registers, direct mask rows and a per-character cursor beyond 64 characters.
 jaro_winkler.h               Jaro with a shared-prefix boost; uses `Jaro::jaro`.
 lcsubstr.h                   Longest common substring.
 lcsubsequence.h              Longest common subsequence.
@@ -157,8 +157,24 @@ when the pin moves, and the soundex pin names the commit that `strings` pins as 
   `test/correctness.cc` checks the equivalence for every metric.
 - **Scratch is capped.** `Peq` keeps at most `kMaxScratchWords` (1 MiB) per thread; a
   call that needs more owns a block (`Peq::_big`). `Scratch::ensure` returns null above
-  the cap: do not index it unchecked. The Dice table is a separate, fixed 256 KiB.
+  the cap: do not index it unchecked. The Dice table (256 KiB) and the Jaro `DirectRows`
+  table (128 KiB) are separate, fixed, and allocated from zero pages on first use.
   `test/scratch.cc` runs with the default cap and with 256 words.
+- **Tables that are zero between calls must be cleared on every path.** The word-sized
+  Jaro mask table, `DirectRows` and `Peq`'s index are cleared by walking the pattern
+  after the match; a new early exit between the fill and the clear leaves a stale mask
+  in the next call (`test/differential.cc` and `test/threads.cc` catch it).
+- **Jaro strips the common prefix and keeps the window bound of the full lengths.**
+  The stripped characters match themselves, hold no transposition, and take the same
+  positions out of every window; `bound` is computed before the strip and `m`,
+  `|str1|`, `|str2|` in the formula are the full values. The one-word path needs both
+  remainders at 64 characters or fewer (the matched positions of str2 are one word).
+- **The Jaro cursor never passes the last word of the window.** A character's cursor
+  is the first word of its row that can still hold a candidate. A word below the
+  window's last word was searched to its top bit without a match, and later windows
+  only move up and use more positions, so it stays empty; the last word itself was
+  cut at the window's upper edge, which later windows pass. The cursor is stored once
+  per character as `min(w, lastw)`.
 
 ## Standalone vs. Xapiand
 

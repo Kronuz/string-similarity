@@ -27,7 +27,8 @@
 // Named checks (so a reverted fix fails a named test):
 //   levenshtein_weighted, jaro, jaro_winkler, lcs, jaccard, dice, icase_len1, levenshtein_zero,
 //   phonetic (and phonetic_jaro, phonetic_jaro_winkler, phonetic_dice: every inner metric, both forms),
-//   icase_<metric> (icase=true equals fold-then-compare), icase_dice, jw_boundary (jd == bt).
+//   icase_<metric> (icase=true equals fold-then-compare), icase_dice, jw_boundary (jd == bt),
+//   jaro_direct_rows (a first string around the 64-word limit of the direct row table).
 
 #include <cmath>
 #include <cstdio>
@@ -362,6 +363,20 @@ int main() {
 				expect(Jaro(false).similarity(fx, fy), with_base_cases(fx, fy, oracle::jaro(fx, fy).value), "jaro", fx, fy);
 				expect(Sorensen_Dice(true).similarity(x, y), with_base_cases(x, y, oracle::dice_multiset(fx, fy)), "dice", x, y);
 				expect(Levenshtein(true).distance(x, y), oracle::lev_distance(fx, fy, 1, 1), "levenshtein_weighted", x, y);
+			}
+		}
+		// The direct row table holds a first string of up to 64 words (4096 characters),
+		// the scratch rows beyond: lengths around the limit, in both orders, over a
+		// small alphabet and all 256 byte values, after a call that dirtied other rows.
+		for (const unsigned alpha : {4u, 256u}) {
+			for (size_t len = 4094; len <= 4098; ++len) {
+				std::string a = rnd(len, alpha), b = rnd(len - len % 7, alpha);
+				std::string c = a;
+				for (int e = 0; e < 20; ++e) c[rng() % c.size()] = char(rng());
+				Jaro(false).similarity(rnd(300, 256), rnd(310, 256));
+				for (const auto& p : {std::pair<const std::string&, const std::string&>{a, b}, {b, a}, {a, c}, {c, a}}) {
+					expect(Jaro(false).similarity(p.first, p.second), with_base_cases(p.first, p.second, oracle::jaro(p.first, p.second).value), "jaro_direct_rows", p.first.substr(0, 40), p.second.substr(0, 40));
+				}
 			}
 		}
 	}

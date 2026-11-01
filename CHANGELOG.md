@@ -15,7 +15,8 @@ release tags yet, so entries are dated.
   `docs/API.md`), `test/frozen_dice.h` (the previous Sørensen-Dice, for the
   differential test). `test/correctness.cc` checks that `icase=true` equals
   fold-then-compare for every metric, `PhoneticMetric` over every inner metric, and
-  Jaro-Winkler at `jd == bt`.
+  Jaro-Winkler at `jd == bt`, and Jaro with a first string around 4096 characters
+  (the limit of the direct row table), after calls that dirtied other rows.
 - `test/rapidfuzz_check.cc` is a CTest test (`string_similarity_rapidfuzz_check`;
   `-DSTRING_SIMILARITY_RAPIDFUZZ_CHECK=OFF` skips it and the fetch of rapidfuzz-cpp). It
   also checks Levenshtein, case-sensitive and bound Jaro and Jaro-Winkler, and both
@@ -45,7 +46,7 @@ release tags yet, so entries are dated.
 - **CI, ASan and UBSan job:** built with `-O1`, and the randomized tests run fewer
   repetitions under a sanitizer, over the same lengths and alphabets
   (`test/sanitizer.h`; the rapidfuzz cross-check runs 40,000 pairs there and a million
-  in the other jobs). The job took 39m56s of its 60 minutes.
+  in the other jobs). The job takes under 3 minutes; it took 39m56s of its 60.
 - Soundex and strings stay pinned by commit (strings `485f882`, soundex `4f192a7`).
 
 - **Levenshtein, patterns longer than 64 characters: banded, several columns per pass.**
@@ -74,6 +75,59 @@ release tags yet, so entries are dated.
   | 3000 chars, 1% substitutions | 252 us | 13.6 us | 236 us | 320 us | 24.8 us | 301 us |
   | 3000 chars, 10% edits | 254 us | 36 us | 237 us | 320 us | 67 us | 309 us |
   | 10000 chars, 1% edits | 2.86 ms | 90 us | 2.58 ms | 3.52 ms | 165 us | 3.16 ms |
+
+- **`Jaro` strips the common prefix, matches words of up to 64 characters in
+  registers, and keeps longer strings' mask rows in a direct table with a
+  per-character cursor.** Results are bit for bit the previous ones. Two
+  strings that share a prefix match it positionally (it holds no transposition
+  and takes the same positions out of every window), so only the rest is
+  matched, with the window bound of the full lengths. A remainder of up to 64
+  characters on both sides uses a 256-entry thread-local table of masks (zero
+  between calls) and one-word used and matched sets. A longer remainder keeps the
+  first string's mask rows in a flat table of 256 rows (`DirectRows`, up to 64
+  words per row; 128 KiB per thread, allocated on first use) or, above 64 words,
+  in the capped scratch; each character of the second string starts at the first
+  word of its row that can still hold a candidate. The earlier code scanned from
+  the first word not completely used.
+
+  `Jaro.similarity`, per call, `bench/bench.cc` ("before" is the previous header
+  behind the same bench; "one pair" rows repeat a single pair):
+
+  | workload | M4 before | M4 after | M4 rapidfuzz | i9 before | i9 after | i9 rapidfuzz |
+  |---|---|---|---|---|---|---|
+  | random words | 50 ns | 32 ns | 67 ns | 90 ns | 57 ns | 95 ns |
+  | 20-40 chars, 2 edits | 114 ns | 61 ns | 105 ns | 294 ns | 135 ns | 148 ns |
+  | 64 chars, 1 edit | 208 ns | 85 ns | 136 ns | 457 ns | 163 ns | 186 ns |
+  | 65 chars, 1 edit | 375 ns | 94 ns | 141 ns | 786 ns | 173 ns | 201 ns |
+  | 129 chars, 1 edit | 656 ns | 295 ns | 378 ns | 1.33 us | 568 ns | 876 ns |
+  | 300 chars, 3 edits | 1.56 us | 1.07 us | 1.29 us | 2.89 us | 2.21 us | 3.27 us |
+  | 300 chars, 4 letters (one pair) | 1.19 us | 1.23 us | 1.59 us | 2.53 us | 2.42 us | 4.06 us |
+  | 300 chars, random bytes of 128 values | 3.09 us | 2.58 us | 2.31 us | 5.91 us | 4.34 us | 5.51 us |
+  | 3000 chars, 4 letters (one pair) | 13.9 us | 11.7 us | 22.2 us | 49.0 us | 22.8 us | 68.0 us |
+
+  Two limits, stated as measured. On Apple M4 the 300 characters of random bytes
+  of 128 values are 12% slower than rapidfuzz (`Jaro_Winkler`: 19%), and the one
+  pair of 300 characters over 4 letters is 3.5% slower than before (the cursor
+  costs a load and a store per character; the same shape over 400 distinct pairs,
+  measured with a scratch bench, went from 1.81 us to 1.45 us). Every other row
+  on both machines is ahead of rapidfuzz.
+
+- **`Sorensen_Dice` per call** (`bench/bench.cc`; "before" is the sort-based
+  implementation, `test/frozen_dice.h`):
+
+  | workload | M4 before | M4 after | i9 before | i9 after |
+  |---|---|---|---|---|
+  | 1-2 chars | 31 ns | 11 ns | 70 ns | 19 ns |
+  | random words | 372 ns | 19 ns | 837 ns | 42 ns |
+  | random words, `icase=true` | 408 ns | 25 ns | 792 ns | 52 ns |
+  | 20-40 chars, 2 edits | 2.21 us | 46 ns | 3.53 us | 87 ns |
+  | 64 chars, 4 letters | 5.07 us | 77 ns | 7.22 us | 122 ns |
+  | 300 chars, 4 letters | 16.7 us | 392 ns | 28.7 us | 457 ns |
+  | 3000 chars, 4 letters | 177 us | 3.99 us | 275 us | 4.34 us |
+
+  The Levenshtein rows of the same bench are unchanged within the A/A noise of the
+  run (new over before between 0.94 and 1.03 on both machines, including
+  `Levenshtein random words` and its A/A rerun).
 
 ### Fixed
 

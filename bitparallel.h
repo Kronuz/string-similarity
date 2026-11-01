@@ -23,11 +23,13 @@
 
 #pragma once
 
-#include <bit>                                    // for std::countr_zero
+#include <bit>                                    // for std::countr_zero, std::countl_zero, std::endian
 #include <cstddef>                                // for std::size_t
 #include <cstdint>                                // for std::uint64_t
-#include <cstring>                                // for std::memset
+#include <cstdlib>                                // for std::calloc, std::free
+#include <cstring>                                // for std::memset, std::memcpy
 #include <memory>                                 // for std::unique_ptr
+#include <new>                                    // for std::bad_alloc
 #include <string>                                 // for std::string
 #include <string_view>                            // for std::string_view
 #include <type_traits>                            // for std::integral_constant
@@ -226,6 +228,89 @@ public:
 
 	word_t mask(unsigned char c) const noexcept { return _rows[_idx[c]]; }
 };
+
+
+// The character masks of a pattern of at most kMaxBlocks words: a flat table of 256
+// rows of kMaxBlocks words, zero between calls, where row(c) holds bit i of the
+// pattern's mask for c. A lookup is an offset, with no index and no new-character
+// branch; the destructor clears only the words the pattern set. The 128 KiB is
+// allocated from zero pages on a thread's first use, so only the rows a pattern
+// touches become resident, and is not part of the scratch cap.
+class DirectRows {
+public:
+	static constexpr std::size_t kMaxBlocks = 64;
+
+private:
+	struct Table {
+		word_t* rows;
+
+		Table()
+			: rows(static_cast<word_t*>(std::calloc(256 * kMaxBlocks, sizeof(word_t))))
+		{
+			if (!rows) {
+				throw std::bad_alloc();
+			}
+		}
+		Table(const Table&) = delete;
+		Table& operator=(const Table&) = delete;
+		~Table() { std::free(rows); }
+	};
+
+	static word_t* table() {
+		static thread_local Table t;
+		return t.rows;
+	}
+
+	const unsigned char* _p;
+	std::size_t _n;
+	std::size_t _nb;
+	word_t* _t;
+
+public:
+	DirectRows(const unsigned char* p, std::size_t n)
+		: _p(p), _n(n), _nb((n + kWordBits - 1) / kWordBits), _t(table())
+	{
+		for (std::size_t i = 0; i < n; ++i) {
+			_t[std::size_t(p[i]) * _nb + i / kWordBits] |= word_t(1) << (i % kWordBits);
+		}
+	}
+
+	DirectRows(const DirectRows&) = delete;
+	DirectRows& operator=(const DirectRows&) = delete;
+
+	~DirectRows() {
+		for (std::size_t i = 0; i < _n; ++i) {
+			_t[std::size_t(_p[i]) * _nb + i / kWordBits] = 0;
+		}
+	}
+
+	std::size_t blocks() const noexcept { return _nb; }
+
+	// The blocks() mask words for character c.
+	const word_t* row(unsigned char c) const noexcept {
+		return _t + std::size_t(c) * _nb;
+	}
+};
+
+
+// The number of leading bytes that a and b share, at most n: eight at a time.
+inline std::size_t common_prefix(const unsigned char* a, const unsigned char* b, std::size_t n) noexcept {
+	std::size_t i = 0;
+	for (; i + 8 <= n; i += 8) {
+		std::uint64_t x, y;
+		std::memcpy(&x, a + i, 8);
+		std::memcpy(&y, b + i, 8);
+		if (const std::uint64_t diff = x ^ y) {
+			// The first byte in memory order is the lowest on a little-endian host.
+			const int bits = std::endian::native == std::endian::little ? std::countr_zero(diff) : std::countl_zero(diff);
+			return i + static_cast<std::size_t>(bits) / 8;
+		}
+	}
+	while (i < n && a[i] == b[i]) {
+		++i;
+	}
+	return i;
+}
 
 
 // Case folding on the fly: fold into a caller-sized stack buffer when it fits,

@@ -50,9 +50,19 @@ plus their one-argument forms, and `_name` / `_description`.
   and returns it *normalized*: `raw / (maxCost * max(len1, len2))`. With unit costs that is
   `raw / max(len1, len2)`, so the test recovers the textbook integer distance by
   multiplying back through the longer length.
-- **Jaro** matches characters within a sliding window in one pass over the
-  second string, using bit masks, counts transpositions, and combines them into
-  the standard Jaro formula. **Jaro_Winkler**
+- **Jaro** strips the common prefix of the two strings (it matches itself position by
+  position and holds no transposition, so the rest is matched on its own with the
+  window bound of the full lengths), then matches characters within a sliding window in
+  one pass over the second string with bit masks, counts transpositions, and combines
+  them into the standard Jaro formula. A remainder of up to 64 characters on both sides
+  is matched in registers (a 256-entry thread-local table of masks, zero between
+  calls; the window mask moves up one bit per character, the matched positions of both
+  strings are words). A longer one keeps the mask rows of the first string in a direct
+  table (256 rows of up to 64 words, `DirectRows`, zero between calls, so a lookup is
+  an offset) or, above 64 words, in the scratch `Peq`; each character of the second
+  string starts its scan at the first word of its row that can still hold a candidate
+  (a per-call cursor, one store per character), which keeps the scan at about one word
+  per character. **Jaro_Winkler**
   is its own metric over `Jaro::jaro` and adds the shared-prefix boost (up to four
   characters, scaled by `p`, applied only above a boost threshold `bt`).
 - **LCSubstr** and **LCSubsequence** each run a two-row DP (contiguous run length
@@ -69,7 +79,8 @@ plus their one-argument forms, and `_name` / `_description`.
   shared bigram) and the shorter one clears them again: three passes, no sorting, no
   allocation. The metric keeps no state beyond its bound string, so a copy is a plain
   copy. A string of one character has no bigram: two equal ones score 1 (identical),
-  anything else 0.
+  anything else 0. The counts are 32 bits: a pair whose shorter string has 4 Gi
+  characters or more throws `std::length_error`.
 - **PhoneticMetric<Encoder, Metric>** derives from the inner `Metric` and holds a
   phonetic `Encoder`. Its `_distance` / `_similarity` encode both operands and
   defer to the inner metric over the codes; its constructor stores the encoded
@@ -81,8 +92,11 @@ The mask tables of strings longer than 64 characters (`Peq`) live in thread-loca
 scratch that grows on demand up to `kMaxScratchWords` (1 MiB; `STRSIM_MAX_SCRATCH_WORDS`
 overrides it at compile time): a thread never keeps more. A call whose masks need more
 (about 300000 letters of 26 symbols, 32000 bytes of all 256 values) takes a block of its
-own and frees it on return; results are the same. The Sørensen-Dice count table is a
-fixed 256 KiB per thread that exists once a thread has used it.
+own and frees it on return; results are the same. Two fixed tables sit beside the
+scratch, each allocated from zero pages when a thread first uses it, so only the pages
+a call touches become resident: the Sørensen-Dice count table (256 KiB) and the Jaro
+rows for a first string of up to 64 words (`DirectRows`, 128 KiB). The word-sized Jaro
+mask table is 2 KiB of thread-local storage.
 
 ## The Levenshtein kernel
 
