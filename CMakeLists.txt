@@ -14,7 +14,7 @@ include(FetchContent)
 FetchContent_Declare(
   strings
   GIT_REPOSITORY https://github.com/Kronuz/strings.git
-  GIT_TAG        5c98ec5a9ac21feeb3d271fcacbc0b4328ec8c26
+  GIT_TAG        1be38483a333d13544fbf6b0937409295c8ea3e0
 )
 
 # --- Dependency: soundex ---
@@ -27,7 +27,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   soundex
   GIT_REPOSITORY https://github.com/Kronuz/soundex.git
-  GIT_TAG        fac413e9ee4545dd82488f6e38e2a74910a67d43
+  GIT_TAG        51f25f96856f876630a530734ee3980394994ddc
 )
 
 FetchContent_MakeAvailable(strings soundex)
