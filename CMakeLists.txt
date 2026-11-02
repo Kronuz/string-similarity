@@ -27,7 +27,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   soundex
   GIT_REPOSITORY https://github.com/Kronuz/soundex.git
-  GIT_TAG        51f25f96856f876630a530734ee3980394994ddc
+  GIT_TAG        3fd0402a6d169f1b9944e3037d5e1d691dc5e85e
 )
 
 FetchContent_MakeAvailable(strings soundex)

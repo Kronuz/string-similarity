@@ -28,7 +28,8 @@ phon.similarity(std::string("Rupert"));                           // homophones 
 
 The operands are `std::string` or `std::string_view` (the metrics call `.empty()` on
 them), both of the same type; a string literal does not bind. A metric bound to a
-string in its constructor copies and moves like any value: the copy owns its string.
+string, string_view or C string in its constructor copies it: the metric owns its string, and
+a bound metric, phonetic ones included, scores a `std::string_view` operand as it scores a `std::string`.
 
 Every metric defaults to `icase=true`, which means "fold both operands to upper case,
 then compare": the result is the one `icase=false` gives for the folded strings, for the

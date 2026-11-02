@@ -60,7 +60,11 @@ public:
 	template <typename T>
 	StringMetric(T&& str, bool icase)
 		: _icase(icase),
-		  _str(_icase ? strings::upper(std::forward<T>(str)) : std::forward<T>(str)) { }
+		  _str(std::forward<T>(str)) {
+		if (_icase) {
+			strings::inplace_upper(_str);
+		}
+	}
 
 	template <typename T>
 	double distance(T&& str1, T&& str2) const {

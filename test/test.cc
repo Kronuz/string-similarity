@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
 #include "levenshtein.h"
 #include "jaro.h"
@@ -36,6 +37,10 @@
 #include "phonetic_metric.h"
 
 #include "english_soundex.h"
+#include "french_soundex.h"
+#include "german_soundex.h"
+#include "spanish_soundex.h"
+
 
 static int checks = 0;
 
@@ -45,6 +50,25 @@ static void close_to(double got, double want, double tol, const char* what) {
 		std::printf("FAIL: %s: got %.6f, want %.6f (tol %.6f)\n", what, got, want, tol);
 		assert(false && "value out of tolerance");
 	}
+}
+
+// A bound metric scores a std::string_view comparand exactly as it scores the
+// same text as a std::string, for lvalue, const and rvalue views and for a view
+// cut out of a longer, non-NUL-terminated buffer.
+template <typename M>
+static void bound_views(M& metric, const std::string& word, const char* what) {
+	const std::string padded = word + "xyz";
+	const std::string_view cut = std::string_view(padded).substr(0, word.size());
+	std::string_view lvalue = cut;
+	const std::string_view clvalue = cut;
+	const double d = metric.distance(std::string(word));
+	const double s = metric.similarity(std::string(word));
+	close_to(metric.distance(lvalue), d, 1e-12, what);
+	close_to(metric.distance(clvalue), d, 1e-12, what);
+	close_to(metric.distance(std::string_view(cut)), d, 1e-12, what);
+	close_to(metric.similarity(lvalue), s, 1e-12, what);
+	close_to(metric.similarity(clvalue), s, 1e-12, what);
+	close_to(metric.similarity(std::string_view(cut)), s, 1e-12, what);
 }
 
 int main() {
@@ -160,6 +184,54 @@ int main() {
 		// And the PhoneticMetric type instantiates and stores the encoded form.
 		SoundexLevenshtein metric(std::string("Robert"));
 		assert(metric.name() == enc.name()); ++checks;
+	}
+
+	// --- Bound metrics take std::string_view -----------------------------
+	{
+		for (bool icase : {false, true}) {
+			Levenshtein lev("kitten", icase);
+			Jaro jaro("kitten", icase);
+			Jaro_Winkler jw("kitten", icase);
+			LCSubstr lcstr("kitten", icase);
+			LCSubsequence lcseq("kitten", icase);
+			Jaccard jac("kitten", icase);
+			Sorensen_Dice dice("kitten", icase);
+			bound_views(lev, "Sitting", "Levenshtein bound view");
+			bound_views(jaro, "Sitting", "Jaro bound view");
+			bound_views(jw, "Sitting", "Jaro_Winkler bound view");
+			bound_views(lcstr, "Sitting", "LCSubstr bound view");
+			bound_views(lcseq, "Sitting", "LCSubsequence bound view");
+			bound_views(jac, "Sitting", "Jaccard bound view");
+			bound_views(dice, "Sitting", "Sorensen_Dice bound view");
+		}
+
+		// Construction from a C string, a view or a std::string folds case alike.
+		close_to(Levenshtein("kitten", true).distance(std::string("KITTEN")), 0.0, 1e-12, "icase ctor C string");
+		close_to(Levenshtein(std::string_view("kitten"), true).distance(std::string("KITTEN")), 0.0, 1e-12, "icase ctor view");
+		close_to(Levenshtein(std::string("kitten"), true).distance(std::string_view("KITTEN")), 0.0, 1e-12, "icase ctor string");
+		close_to(Levenshtein("kitten", false).distance(std::string_view("KITTEN")) > 0.0 ? 1.0 : 0.0, 1.0, 1e-12, "case-sensitive ctor");
+
+		// Every language's encoder, with two inner metrics, built from a word and a view.
+		PhoneticMetric<SoundexEnglish, Levenshtein> en("Robert");
+		PhoneticMetric<SoundexFrench, Levenshtein> fr("Bonjour");
+		PhoneticMetric<SoundexGerman, Levenshtein> de("Wikipedia");
+		PhoneticMetric<SoundexSpanish, Levenshtein> es("Gonzalez");
+		PhoneticMetric<SoundexFrench, LCSubsequence> fr_lcs("Bonjour");
+		PhoneticMetric<SoundexGerman, LCSubsequence> de_lcs("Wikipedia");
+		PhoneticMetric<SoundexSpanish, LCSubsequence> es_lcs("Gonzalez");
+		bound_views(en, "Rupert", "PhoneticMetric English bound view");
+		bound_views(fr, "Bonjur", "PhoneticMetric French bound view");
+		bound_views(de, "Wikipedya", "PhoneticMetric German bound view");
+		bound_views(es, "Gonsales", "PhoneticMetric Spanish bound view");
+		bound_views(fr_lcs, "Bonjur", "PhoneticMetric French LCSubsequence bound view");
+		bound_views(de_lcs, "Wikipedya", "PhoneticMetric German LCSubsequence bound view");
+		bound_views(es_lcs, "Gonsales", "PhoneticMetric Spanish LCSubsequence bound view");
+
+		// The French pair sounds alike, so the view scores 1.0 against its twin.
+		close_to(fr.similarity(std::string_view("Bonjur")), 1.0, 1e-12, "French homophone view");
+		// A bound metric is also constructible from a view.
+		PhoneticMetric<SoundexSpanish, Levenshtein> from_view(std::string_view("Vaca"));
+		close_to(from_view.similarity(std::string_view("Baca")), 1.0, 1e-12, "Spanish V/B view");
 	}
 
 	std::printf("all string-metrics tests passed (%d checks)\n", checks);
