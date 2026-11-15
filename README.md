@@ -118,6 +118,8 @@ measurements.
 
 ## 📚 Documentation
 
+- [Many Ways to Be Similar](https://kronuz.github.io/blog/string-similarity/):
+  the Familiars post on why it exists and how it works.
 - [docs/API.md](docs/API.md): each metric and how to call it.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the CRTP base, how each metric normalizes, and
   the kernels.
