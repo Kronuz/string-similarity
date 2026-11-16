@@ -94,12 +94,12 @@ when the pin moves, and the soundex pin names the commit that `strings` pins as 
 
 ## Load-bearing invariants
 
-- **No persistence.** The library omits Xapiand's `serialise()` / `unserialise()`
+- **No persistence.** The library omits Xapiand's `serialize()` / `unserialize()`
   methods and their includes (`length.h`, the GPL
   `xapian/common/serialise-double.h`); the metrics are pure algorithms. Don't
-  reintroduce them here. A Xapiand that uses this library keeps its own serialise
+  reintroduce them here. A Xapiand that uses this library keeps its own serialize
   adapter on top. Do not
-  call `_soundex.serialise()` either; the soundex library has no serialise.
+  call `_soundex.serialize()` either; the soundex library has no serialize.
 - **The CRTP base owns the base cases and case folding.** Identical strings
   short-circuit to `0` / `1`, an empty operand to `1` / `0`, and `_icase` folds
   both operands with `strings::upper` before any subclass `_distance` /
@@ -122,7 +122,7 @@ when the pin moves, and the soundex pin names the commit that `strings` pins as 
 - **Add a metric.** Derive `class Foo : public StringMetric<Foo>`, befriend the
   base, implement the two-argument and one-argument `_distance` / `_similarity` and
   `_name` / `_description`. Add the standard headers it needs at the top (the
-  family lists each include with a `// for ...` note). No serialise.
+  family lists each include with a `// for ...` note). No serialize.
 - **Always extend the tests.** Add a case to `test/test.cc` asserting a
   hand-computed value for any new metric, with a tolerance for the floating-point
   ones, and an oracle comparison to `test/correctness.cc`.
@@ -183,7 +183,7 @@ when the pin moves, and the soundex pin names the commit that `strings` pins as 
 
 This is a standalone extraction from
 [Xapiand](https://github.com/Kronuz/Xapiand). It differs from upstream in three
-ways: it has no persistence layer (`serialise()` / `unserialise()` and the
+ways: it has no persistence layer (`serialize()` / `unserialize()` and the
 `length.h` / GPL `serialise-double.h` includes), it resolves its local includes
 (`strings.hh` and the soundex encoder headers) against the standalone `strings`
 and `soundex` libraries through CMake, and it carries the kernels and fixes in

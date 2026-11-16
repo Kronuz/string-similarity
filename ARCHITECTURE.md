@@ -170,7 +170,7 @@ than spelling-based, comparison.
 
 ## Standalone vs. Xapiand
 
-Upstream, the base and each subclass also carry `serialise()` / `unserialise()`
+Upstream, the base and each subclass also carry `serialize()` / `unserialize()`
 methods to persist a metric's configured parameters (the icase flag, the bound
 string, Levenshtein's costs, Jaro-Winkler's `p` / `bt`) into a Xapiand index.
 Those need `length.h` (Xapiand's varint serializer) and a GPL-licensed Xapian

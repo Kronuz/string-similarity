@@ -133,12 +133,12 @@ MUTANTS = {
     "phonetic_not_encoded": (PHON, "return Metric::distance(_soundex.encode(str1), _soundex.encode(str2));", "return Metric::distance(str1, str2);", D),
     "phonetic_bound_not_encoded": (PHON, "\t\tthis->_str = _soundex.encode();\n", "", D + ("subclass",)),
     # --- what a subclass reads
-    "winkler_factor_private": (JW, "protected:\n\t// protected (not private) so a consumer can subclass to re-add the\n\t// serialise()/unserialise() persistence this library deliberately omits.\n\tdouble _p;  // Scaling factor.\n\tdouble _bt; // Boost threshold.\n\nprivate:",
+    "winkler_factor_private": (JW, "protected:\n\t// protected (not private) so a consumer can subclass to re-add the\n\t// serialize()/unserialize() persistence this library deliberately omits.\n\tdouble _p;  // Scaling factor.\n\tdouble _bt; // Boost threshold.\n\nprivate:",
                                "private:\n\tdouble _p;  // Scaling factor.\n\tdouble _bt; // Boost threshold.\n", ("subclass",)),
     "winkler_default_p": (JW, "Jaro_Winkler(T&& str, bool icase=true, double p=0.1, double bt=0.7)", "Jaro_Winkler(T&& str, bool icase=true, double p=0.2, double bt=0.7)", ("subclass",)),
     "winkler_default_p_unbound": (JW, "Jaro_Winkler(bool icase=true, double p=0.1, double bt=0.7)", "Jaro_Winkler(bool icase=true, double p=0.2, double bt=0.7)", ("subclass",)),
     "winkler_default_threshold": (JW, "Jaro_Winkler(T&& str, bool icase=true, double p=0.1, double bt=0.7)", "Jaro_Winkler(T&& str, bool icase=true, double p=0.1, double bt=0.8)", ("subclass",)),
-    "levenshtein_costs_private": (LEV, "protected:\n\t// protected (not private) so a consumer can subclass to re-add the\n\t// serialise()/unserialise() persistence this library deliberately omits.\n\tsize_t _subst_cost;\n\tsize_t _ins_del_cost;\n\tsize_t _maxCost;\n\nprivate:",
+    "levenshtein_costs_private": (LEV, "protected:\n\t// protected (not private) so a consumer can subclass to re-add the\n\t// serialize()/unserialize() persistence this library deliberately omits.\n\tsize_t _subst_cost;\n\tsize_t _ins_del_cost;\n\tsize_t _maxCost;\n\nprivate:",
                                    "private:\n\tsize_t _subst_cost;\n\tsize_t _ins_del_cost;\n\tsize_t _maxCost;\n", ("subclass",)),
     "levenshtein_max_cost": (LEV, "\t\t  _maxCost(std::max(_subst_cost, _ins_del_cost)) { }\n\n\ttemplate", "\t\t  _maxCost(_subst_cost) { }\n\n\ttemplate", ("subclass",) + D),
 }

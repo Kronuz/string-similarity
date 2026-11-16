@@ -42,7 +42,7 @@ template <typename Encoder, typename Metric>
 class PhoneticMetric : public Metric {
 protected:
 	// protected (not private) so a consumer can subclass to re-add the
-	// serialise()/unserialise() persistence this library deliberately omits.
+	// serialize()/unserialize() persistence this library deliberately omits.
 	Encoder _soundex;
 
 private:
